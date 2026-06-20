@@ -105,20 +105,26 @@ export function DataProvider({ children }) {
   const [programs, setPrograms] = useState({})       // patientId -> program
   const [assessments, setAssessments] = useState({}) // patientId -> draft
   const [settings, setSettings] = useState(mock.DEFAULT_SETTINGS)
+  const [bookings, setBookings] = useState([])          // public appointment requests
+  const [availabilityBlocks, setAvailabilityBlocks] = useState([]) // blocked dates/times
   const [ready, setReady] = useState(!supabaseConfigured)
 
   useEffect(() => {
     if (!supabaseConfigured) return
     ;(async () => {
       try {
-        const [{ data: ps }, { data: ls }, { data: as }] = await Promise.all([
+        const [{ data: ps }, { data: ls }, { data: as }, { data: bk }, { data: av }] = await Promise.all([
           supabase.from('patients').select('*').order('last_visit', { ascending: false }),
           supabase.from('symptom_logs').select('*').order('date'),
           supabase.from('alerts').select('*').order('date', { ascending: false }),
+          supabase.from('bookings').select('*').order('created_at', { ascending: false }),
+          supabase.from('availability_blocks').select('*').order('date'),
         ])
         if (ps?.length) setPatients(ps.map(rowToPatient))
         if (ls?.length) setLogs(ls.map(rowToLog))
         if (as?.length) setAlerts(as.map((a) => ({ id: a.id, patientId: a.patient_id, severity: a.severity, kind: a.kind, text: a.text, date: a.date })))
+        if (bk?.length) setBookings(bk.map(rowToBooking))
+        if (av?.length) setAvailabilityBlocks(av.map(rowToBlock))
       } finally { setReady(true) }
     })()
   }, [])
@@ -167,8 +173,53 @@ export function DataProvider({ children }) {
       await supabase.from('assessments').upsert({ patient_id: patientId, form, status, updated_at: new Date().toISOString() }, { onConflict: 'patient_id' })
   }
 
+  // ---- Bookings (public appointment requests) ----
+  const addBooking = async (b) => {
+    const full = {
+      id: 'b' + Math.random().toString(36).slice(2, 9),
+      status: 'pending', createdAt: new Date().toISOString(), ...b,
+    }
+    setBookings((arr) => [full, ...arr])
+    if (supabaseConfigured) {
+      const { data } = await supabase.from('bookings').insert(bookingToRow(full)).select().single()
+      if (data) setBookings((arr) => arr.map((x) => (x.id === full.id ? rowToBooking(data) : x)))
+    }
+    return full
+  }
+
+  const updateBooking = async (id, patch) => {
+    setBookings((arr) => arr.map((b) => (b.id === id ? { ...b, ...patch } : b)))
+    if (supabaseConfigured) await supabase.from('bookings').update(bookingToRow(patch, true)).eq('id', id)
+  }
+
+  const deleteBooking = async (id) => {
+    setBookings((arr) => arr.filter((b) => b.id !== id))
+    if (supabaseConfigured) await supabase.from('bookings').delete().eq('id', id)
+  }
+
+  // ---- Availability blocks ----
+  const addBlock = async (date, time = '', reason = '') => {
+    const full = { id: 'av' + Math.random().toString(36).slice(2, 9), date, time: time || '', reason }
+    setAvailabilityBlocks((arr) =>
+      arr.some((b) => b.date === date && (b.time || '') === (time || '')) ? arr : [...arr, full])
+    if (supabaseConfigured) await supabase.from('availability_blocks').upsert(
+      { date, time: time || null, reason }, { onConflict: 'date,time' })
+    return full
+  }
+
+  const removeBlock = async (id) => {
+    const block = availabilityBlocks.find((b) => b.id === id)
+    setAvailabilityBlocks((arr) => arr.filter((b) => b.id !== id))
+    if (supabaseConfigured && block) {
+      let q = supabase.from('availability_blocks').delete().eq('date', block.date)
+      q = block.time ? q.eq('time', block.time) : q.is('time', null)
+      await q
+    }
+  }
+
   const value = useMemo(() => ({
     ready, patients, logs, alerts, programs, assessments, settings, setSettings,
+    bookings, availabilityBlocks,
     therapists: mock.THERAPISTS, exercises: mock.EXERCISES,
     appointments: mock.APPOINTMENTS, followups: mock.FOLLOWUPS,
     weeklyActivity: mock.WEEKLY_ACTIVITY, conditionsDist: mock.CONDITIONS_DIST,
@@ -176,7 +227,8 @@ export function DataProvider({ children }) {
     aclPhases: mock.ACL_PHASES, aclState: mock.ACL_PATIENT_STATE,
     outcomeTools: mock.OUTCOME_TOOLS,
     addPatient, updatePatient, addLog, dismissAlert, saveProgram, saveAssessment,
-  }), [ready, patients, logs, alerts, programs, assessments, settings])
+    addBooking, updateBooking, deleteBooking, addBlock, removeBlock,
+  }), [ready, patients, logs, alerts, programs, assessments, settings, bookings, availabilityBlocks])
 
   return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>
 }
@@ -204,6 +256,21 @@ const patientToRow = (p, partial = false) => {
   if (partial) Object.keys(map).forEach((k) => map[k] === undefined && delete map[k])
   return map
 }
+const rowToBooking = (r) => ({
+  id: r.id, name: r.name, phone: r.phone, sessionType: r.session_type,
+  requestedDate: r.requested_date, requestedTime: r.requested_time,
+  notes: r.notes, status: r.status, createdAt: r.created_at,
+})
+const bookingToRow = (b, partial = false) => {
+  const map = {
+    name: b.name, phone: b.phone, session_type: b.sessionType,
+    requested_date: b.requestedDate, requested_time: b.requestedTime,
+    notes: b.notes, status: b.status,
+  }
+  if (partial) Object.keys(map).forEach((k) => map[k] === undefined && delete map[k])
+  return map
+}
+const rowToBlock = (r) => ({ id: r.id, date: r.date, time: r.time || '', reason: r.reason || '' })
 const rowToLog = (r) => ({
   id: r.id, patientId: r.patient_id, date: r.date, pain: r.pain, stiffness: r.stiffness,
   swelling: r.swelling, sleep: r.sleep, fatigue: r.fatigue, function: r.function_level,

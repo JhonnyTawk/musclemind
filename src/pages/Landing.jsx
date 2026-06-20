@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { Logo } from '../components/Layout'
 import { Field, Input, Textarea, Select } from '../components/ui'
+import { useData } from '../context/app'
+import { availableSlots } from '../lib/schedule'
 import { SITE, whatsappLink, mapEmbedUrl } from '../config/site'
 
 const NAV_LINKS = [
@@ -19,12 +21,20 @@ const NAV_LINKS = [
 /* ----------------------------- Booking ----------------------------- */
 function BookingForm() {
   const today = new Date().toISOString().slice(0, 10)
+  const { addBooking, availabilityBlocks } = useData()
   const [form, setForm] = useState({
     name: '', phone: '', type: SITE.booking.sessionTypes[0], date: '', time: '', notes: '',
   })
   const [errors, setErrors] = useState({})
   const [sent, setSent] = useState(false)
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value, ...(k === 'date' ? { time: '' } : null) })
+
+  // Hide any times the clinic has blocked for the chosen date.
+  const slots = useMemo(
+    () => availableSlots(SITE.booking.slots, availabilityBlocks, form.date),
+    [availabilityBlocks, form.date],
+  )
+  const dayFull = Boolean(form.date) && slots.length === 0
 
   const submit = () => {
     const errs = {}
@@ -35,6 +45,13 @@ function BookingForm() {
     setErrors(errs)
     if (Object.keys(errs).length) return
 
+    // Save the request so it appears in the clinic dashboard…
+    addBooking({
+      name: form.name, phone: form.phone, sessionType: form.type,
+      requestedDate: form.date, requestedTime: form.time, notes: form.notes,
+    })
+
+    // …and open a pre-filled WhatsApp so the clinic is notified instantly.
     const msg =
       `New appointment request — ${SITE.clinicName}\n\n` +
       `Name: ${form.name}\n` +
@@ -88,10 +105,11 @@ function BookingForm() {
         <Field label="Preferred date" error={errors.date}>
           <Input type="date" min={today} value={form.date} onChange={set('date')} />
         </Field>
-        <Field label="Preferred time" error={errors.time}>
-          <Select value={form.time} onChange={set('time')}>
-            <option value="">Select a time…</option>
-            {SITE.booking.slots.map((t) => <option key={t}>{t}</option>)}
+        <Field label="Preferred time" error={errors.time}
+          hint={dayFull ? 'Fully booked that day — please pick another date.' : undefined}>
+          <Select value={form.time} onChange={set('time')} disabled={!form.date || dayFull}>
+            <option value="">{!form.date ? 'Pick a date first…' : dayFull ? 'No times available' : 'Select a time…'}</option>
+            {slots.map((t) => <option key={t}>{t}</option>)}
           </Select>
         </Field>
         <div className="sm:col-span-2">

@@ -3,12 +3,14 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, ClipboardList, Dumbbell, Activity, GitBranch,
   FileBarChart2, Settings, Bell, Search, Plus, Menu, X, LogOut, HeartPulse,
+  CalendarDays,
 } from 'lucide-react'
 import { useAuth, useData, useToast } from '../context/app'
 import { Avatar, Badge, Modal, Field, Input, Select } from './ui'
 
 const NAV = [
   { to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/app/appointments', label: 'Appointments', icon: CalendarDays },
   { to: '/app/patients', label: 'Patients', icon: Users },
   { to: '/app/assessment', label: 'Assessment Form', icon: ClipboardList },
   { to: '/app/exercises', label: 'Home Exercise Program', icon: Dumbbell },

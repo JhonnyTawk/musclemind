@@ -8,6 +8,7 @@ import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
+import Appointments from './pages/Appointments'
 import Patients from './pages/Patients'
 import PatientProfile from './pages/PatientProfile'
 import Assessment from './pages/Assessment'
@@ -35,6 +36,7 @@ function App() {
       <Route path="/p/:token" element={<Portal />} />
       <Route path="/app" element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
+        <Route path="appointments" element={<Appointments />} />
         <Route path="patients" element={<Patients />} />
         <Route path="patients/:id" element={<PatientProfile />} />
         <Route path="assessment" element={<Assessment />} />
