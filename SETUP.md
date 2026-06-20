@@ -13,8 +13,8 @@ the steps below.** There is no demo/offline mode.
 1. Create a free project at https://supabase.com.
 2. In **Project Settings → API**, copy the **Project URL** and the **anon public** key.
 3. In **Vercel → your project → Settings → Environment Variables**, add:
-   - `VITE_SUPABASE_URL` = your Project URL
-   - `VITE_SUPABASE_ANON_KEY` = your anon public key
+   - `VITE_SUPABASE_URL` = https://dhwokqcocelnqkwwkxyz.supabase.co
+   - `VITE_SUPABASE_ANON_KEY` = sb_publishable_pij95b6g7It7wnOElplZpQ_vxR8HOTb
 4. Redeploy.
 
 ## 2. Create the database tables

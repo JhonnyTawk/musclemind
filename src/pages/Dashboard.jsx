@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Users, ClipboardList, CalendarClock, CheckCircle2, Dumbbell, Activity,
@@ -7,22 +8,64 @@ import { useData } from '../context/app'
 import { Card, CardHeader, Stat, Badge, Avatar, PainBadge, ProgressBar, EmptyState } from '../components/ui'
 import { Bars, Donut, TrendLine, Gauge } from '../components/charts'
 
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const weekdayIndex = (dateStr) => { const wd = new Date(dateStr).getDay(); return Number.isNaN(wd) ? -1 : (wd + 6) % 7 }
+const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
+
 export default function Dashboard() {
-  const { patients, alerts, appointments, followups, weeklyActivity, conditionsDist, phaseDist, logs, dismissAlert, therapists } = useData()
+  const { patients, alerts, appointments, followups, logs, dismissAlert } = useData()
   const navigate = useNavigate()
+  const today = new Date().toISOString().slice(0, 10)
 
   const active = patients.filter((p) => p.status === 'Active')
   const completed = patients.filter((p) => p.status === 'Discharged')
   const avgAdherence = Math.round(active.reduce((s, p) => s + (p.adherence || 0), 0) / Math.max(1, active.length))
+  const lowAdherence = active.filter((p) => (p.adherence || 0) < 65).length
 
-  // clinic-wide average pain over last 14 days
-  const painTrend = (() => {
+  const todaysAppointments = useMemo(
+    () => appointments.filter((a) => a.date === today).sort((a, b) => (a.time || '').localeCompare(b.time || '')),
+    [appointments, today],
+  )
+
+  // clinic-wide average pain over last 14 days (real logs)
+  const painTrend = useMemo(() => {
     const byDate = {}
     logs.forEach((l) => { (byDate[l.date] ||= []).push(l.pain) })
     return Object.keys(byDate).sort().slice(-14).map((d) => ({
       x: d.slice(5), pain: +(byDate[d].reduce((a, b) => a + b, 0) / byDate[d].length).toFixed(1),
     }))
-  })()
+  }, [logs])
+
+  // caseload by condition, derived from each patient's diagnosis/complaint
+  const conditionsDist = useMemo(() => {
+    const buckets = { 'ACL / knee': 0, 'Low back': 0, 'Shoulder': 0, 'Neck / posture': 0, 'Ankle / foot': 0, 'Other': 0 }
+    active.forEach((p) => {
+      const d = `${p.diagnosis || ''} ${p.complaint || ''}`.toLowerCase()
+      if (/acl|knee|patell|meniscus/.test(d)) buckets['ACL / knee']++
+      else if (/back|lumbar|spine|disc|sciatic/.test(d)) buckets['Low back']++
+      else if (/shoulder|rotator|subacromial|capsulit/.test(d)) buckets['Shoulder']++
+      else if (/neck|cervical|posture|headache/.test(d)) buckets['Neck / posture']++
+      else if (/ankle|foot|achilles|calf|plantar/.test(d)) buckets['Ankle / foot']++
+      else buckets['Other']++
+    })
+    return Object.entries(buckets).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
+  }, [active])
+
+  // patients grouped by their current rehab phase
+  const phaseDist = useMemo(() => {
+    const counts = {}
+    patients.forEach((p) => { if (p.rehabPhase) counts[p.rehabPhase] = (counts[p.rehabPhase] || 0) + 1 })
+    return Object.keys(counts).sort().map((ph) => ({ phase: `P${ph}`, count: counts[ph] }))
+  }, [patients])
+
+  // clinic sessions (appointments) and home logs over the last 7 days, by weekday
+  const weeklyActivity = useMemo(() => {
+    const cut = daysAgoStr(6)
+    const base = WEEKDAYS.map((day) => ({ day, sessions: 0, logs: 0 }))
+    logs.forEach((l) => { if (l.date >= cut) { const i = weekdayIndex(l.date); if (i >= 0) base[i].logs++ } })
+    appointments.forEach((a) => { if (a.date >= cut) { const i = weekdayIndex(a.date); if (i >= 0) base[i].sessions++ } })
+    return base
+  }, [logs, appointments])
 
   const quick = [
     { icon: ClipboardList, label: 'New assessment', to: '/app/assessment' },
@@ -44,7 +87,7 @@ export default function Dashboard() {
         <Stat icon={ClipboardList} label="Active treatment plans" value={active.length} tone="teal" />
         <Stat icon={CalendarClock} label="Needing follow-up" value={followups.length} tone="amber" />
         <Stat icon={CheckCircle2} label="Completed programs" value={completed.length} tone="green" />
-        <Stat icon={CalendarDays} label="Today's appointments" value={appointments.length} />
+        <Stat icon={CalendarDays} label="Today's appointments" value={todaysAppointments.length} />
       </div>
 
       {/* quick actions */}
@@ -83,7 +126,9 @@ export default function Dashboard() {
         <Card>
           <CardHeader title="Exercise adherence" sub="Active patients · this month" />
           <div className="px-3 pb-2"><Gauge value={avgAdherence} label="average adherence" /></div>
-          <p className="px-5 pb-4 text-xs text-ink-3">2 patients below 65% — listed in alerts.</p>
+          <p className="px-5 pb-4 text-xs text-ink-3">
+            {lowAdherence > 0 ? `${lowAdherence} active patient${lowAdherence > 1 ? 's' : ''} below 65% — check alerts.` : 'All active patients above 65%.'}
+          </p>
         </Card>
         <Card>
           <CardHeader title="Rehab phase distribution" sub="Patients in phased programs" />
@@ -118,16 +163,16 @@ export default function Dashboard() {
         <Card>
           <CardHeader title="Today's appointments" sub={new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} />
           <div>
-            {appointments.map((a) => {
+            {todaysAppointments.length === 0 && <p className="px-5 py-6 text-sm text-ink-3 text-center">No appointments scheduled for today.</p>}
+            {todaysAppointments.map((a) => {
               const p = patients.find((x) => x.id === a.patientId)
-              const t = therapists.find((x) => x.id === a.therapistId)
               return (
                 <button key={a.id} onClick={() => navigate(`/app/patients/${a.patientId}`)}
                   className="w-full flex items-center gap-3 px-5 py-3 hover:bg-teal-50/50 border-t border-line text-left">
                   <div className="text-sm font-display font-semibold text-teal-700 w-12 shrink-0">{a.time}</div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate">{p?.name}</div>
-                    <div className="text-xs text-ink-3 truncate">{a.type} · {t?.name?.split(' ')[0]}</div>
+                    <div className="text-xs text-ink-3 truncate">{a.type}</div>
                   </div>
                 </button>
               )

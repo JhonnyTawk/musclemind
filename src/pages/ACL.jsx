@@ -74,16 +74,36 @@ function PhaseCard({ phase, status, completion, checkedItems, onToggle, defaultO
   )
 }
 
+// Build an ACL status view from the real patient record. Detailed measurements
+// (ROM, quad index, ACL-RSI) aren't captured by a form yet, so they read
+// "Not recorded" rather than showing invented numbers.
+function deriveState(patient, patientAlerts) {
+  if (!patient) return null
+  return {
+    currentPhase: patient.rehabPhase || 1,
+    phaseCompletion: patient.adherence ?? 0,
+    psychReadiness: null,
+    rom: null,
+    quadIndex: null,
+    singleLeg: null,
+    hopReady: false,
+    painSwelling: patient.painNow != null ? `Pain ${patient.painNow}/10` : null,
+    notes: patient.progress || 'No notes recorded yet.',
+    alerts: patientAlerts,
+    checks: {},
+  }
+}
+
 export default function ACL() {
-  const { patients, aclPhases, aclState } = useData()
+  const { patients, aclPhases, alerts } = useData()
   const toast = useToast()
   const aclPatients = patients.filter((p) => p.isACL)
   const [patientId, setPatientId] = useState(aclPatients[0]?.id)
-  const base = aclState[patientId]
-  const [checks, setChecks] = useState(() => base?.checks || {})
+  const [checks, setChecks] = useState({})
 
-  const state = aclState[patientId]
-  const onPick = (id) => { setPatientId(id); setChecks(aclState[id]?.checks || {}) }
+  const patient = patients.find((p) => p.id === patientId)
+  const state = deriveState(patient, alerts.filter((a) => a.patientId === patientId))
+  const onPick = (id) => { setPatientId(id); setChecks({}) }
   const toggle = (phaseN, item) => {
     setChecks((c) => {
       const arr = c[phaseN] || []
@@ -93,14 +113,14 @@ export default function ACL() {
     toast('Checklist updated')
   }
 
-  const indicators = useMemo(() => state && [
-    ['ROM — extension', `${state.rom.extension}°`, state.rom.extension <= 0 ? 'green' : 'amber'],
-    ['ROM — flexion', `${state.rom.flexion}° / ${state.rom.target}°`, state.rom.flexion >= state.rom.target - 10 ? 'green' : 'amber'],
-    ['Pain / swelling', state.painSwelling, 'slate'],
-    ['Quad activation (index)', `${state.quadIndex}%`, state.quadIndex >= 80 ? 'green' : state.quadIndex >= 65 ? 'amber' : 'red'],
-    ['Single-leg control', state.singleLeg, 'slate'],
+  const indicators = useMemo(() => state ? [
+    ['ROM — extension', state.rom ? `${state.rom.extension}°` : 'Not recorded', state.rom ? (state.rom.extension <= 0 ? 'green' : 'amber') : 'slate'],
+    ['ROM — flexion', state.rom ? `${state.rom.flexion}° / ${state.rom.target}°` : 'Not recorded', state.rom ? (state.rom.flexion >= state.rom.target - 10 ? 'green' : 'amber') : 'slate'],
+    ['Pain / swelling', state.painSwelling || 'Not recorded', 'slate'],
+    ['Quad activation (index)', state.quadIndex != null ? `${state.quadIndex}%` : 'Not recorded', state.quadIndex != null ? (state.quadIndex >= 80 ? 'green' : state.quadIndex >= 65 ? 'amber' : 'red') : 'slate'],
+    ['Single-leg control', state.singleLeg || 'Not recorded', 'slate'],
     ['Hop test readiness', state.hopReady ? 'Ready to test' : 'Not yet — criteria pending', state.hopReady ? 'green' : 'amber'],
-  ], [state])
+  ] : [], [state])
 
   if (!aclPatients.length) return (
     <Card><EmptyState icon={GitBranch} title="No patients on an ACL program"
@@ -130,10 +150,17 @@ export default function ACL() {
           </div>
           <p className="text-xs text-ink-3 mt-2">{aclPhases[state.currentPhase - 1].window}</p>
         </Card>
-        <Card className="p-2">
-          <Gauge value={state.psychReadiness} label="psychological readiness" color="#16404D" height={150} />
-          <p className="text-center text-xs text-ink-3 pb-3 -mt-1">ACL-RSI style score — target ≥ 65 before return to sport</p>
-        </Card>
+        {state.psychReadiness != null ? (
+          <Card className="p-2">
+            <Gauge value={state.psychReadiness} label="psychological readiness" color="#16404D" height={150} />
+            <p className="text-center text-xs text-ink-3 pb-3 -mt-1">ACL-RSI style score — target ≥ 65 before return to sport</p>
+          </Card>
+        ) : (
+          <Card className="p-5 flex flex-col justify-center">
+            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3">Psychological readiness</div>
+            <p className="text-sm text-ink-3 mt-2">Not recorded yet — capture an ACL-RSI score during assessment.</p>
+          </Card>
+        )}
         <Card className="p-5">
           <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-2 flex items-center gap-1.5"><StickyNote size={13} /> Therapist notes</div>
           <p className="text-sm leading-relaxed text-ink-2">{state.notes}</p>

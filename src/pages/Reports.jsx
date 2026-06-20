@@ -29,11 +29,11 @@ const SCORES = [
 export default function Reports() {
   const { patients, logs } = useData()
   const toast = useToast()
-  const [patientId, setPatientId] = useState('p1')
+  const [patientId, setPatientId] = useState('')
   const [genOpen, setGenOpen] = useState(null)
 
-  const patient = patients.find((p) => p.id === patientId)
-  const rows = useMemo(() => logs.filter((l) => l.patientId === patientId).slice(-30), [logs, patientId])
+  const patient = patients.find((p) => p.id === patientId) || patients[0]
+  const rows = useMemo(() => logs.filter((l) => l.patientId === patient?.id).slice(-30), [logs, patient])
   const painData = rows.map((r) => ({ x: r.date.slice(5), pain: r.pain }))
   const highRisk = patients.filter((p) => p.status === 'Active' && (p.painNow >= 6 || p.adherence < 65))
 
@@ -44,7 +44,8 @@ export default function Reports() {
           <h1 className="font-display font-bold text-2xl">Reports</h1>
           <p className="text-sm text-ink-3 mt-1">Progress summaries and printable clinical documents.</p>
         </div>
-        <Select className="input w-52" value={patientId} onChange={(e) => setPatientId(e.target.value)}>
+        <Select className="input w-52" value={patient?.id || ''} onChange={(e) => setPatientId(e.target.value)}>
+          {patients.length === 0 && <option value="">No patients yet</option>}
           {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
       </div>
@@ -63,11 +64,11 @@ export default function Reports() {
           <div className="px-3 pb-4"><TrendLine data={ROM_PROGRESS} lines={[{ key: 'flexion', name: 'Flexion °' }]} height={185} /></div>
         </Card>
         <Card>
-          <CardHeader title="Strength comparison" sub="% of uninvolved side" />
+          <CardHeader title="Strength comparison" sub="% of uninvolved side (sample)" />
           <div className="px-3 pb-4"><Bars data={STRENGTH} bars={[{ key: 'involved', name: 'Involved %' }]} height={185} /></div>
         </Card>
         <Card>
-          <CardHeader title="Functional scores" sub="KOOS and PSFS over the episode" />
+          <CardHeader title="Functional scores" sub="KOOS and PSFS over the episode (sample)" />
           <div className="px-3 pb-4"><TrendLine data={SCORES} lines={[{ key: 'KOOS' }, { key: 'PSFS', color: '#B45309' }]} height={185} /></div>
         </Card>
         <Card>
@@ -75,7 +76,7 @@ export default function Reports() {
           <div className="px-2 pb-2"><Gauge value={patient?.adherence ?? 0} label="completed sessions" height={160} /></div>
         </Card>
         <Card>
-          <CardHeader title="Phase progression" sub="Rehab phases this episode" />
+          <CardHeader title="Phase progression" sub="Rehab phases this episode (sample)" />
           <div className="px-5 pb-5 space-y-2.5">
             {['Protection', 'Early strength', 'Neuromuscular', 'Advanced strength'].map((p, i) => (
               <div key={p} className="flex items-center gap-3">
