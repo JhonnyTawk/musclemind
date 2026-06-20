@@ -19,11 +19,25 @@ import Reports from './pages/Reports'
 import SettingsPage from './pages/Settings'
 import Portal from './pages/Portal'
 
-function RequireAuth({ children }) {
+const Loading = () => <div className="h-full flex items-center justify-center text-ink-3 text-sm">Loading MuscleMind…</div>
+
+// Staff-only area. Patients who land here are redirected to their portal.
+function RequireStaff({ children }) {
   const { user, loading } = useAuth()
   const location = useLocation()
-  if (loading) return <div className="h-full flex items-center justify-center text-ink-3 text-sm">Loading MuscleMind…</div>
+  if (loading) return <Loading />
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />
+  if (user.role === 'patient') return <Navigate to="/portal" replace />
+  if (user.role !== 'admin' && user.role !== 'therapist') return <Navigate to="/login" replace />
+  return children
+}
+
+// Patient-only area. Staff who land here are redirected to the dashboard.
+function RequirePatient({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <Loading />
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'patient') return <Navigate to="/app" replace />
   return children
 }
 
@@ -32,9 +46,9 @@ function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/welcome" element={<RequireAuth><Onboarding /></RequireAuth>} />
-      <Route path="/p/:token" element={<Portal />} />
-      <Route path="/app" element={<RequireAuth><Layout /></RequireAuth>}>
+      <Route path="/portal" element={<RequirePatient><Portal /></RequirePatient>} />
+      <Route path="/welcome" element={<RequireStaff><Onboarding /></RequireStaff>} />
+      <Route path="/app" element={<RequireStaff><Layout /></RequireStaff>}>
         <Route index element={<Dashboard />} />
         <Route path="appointments" element={<Appointments />} />
         <Route path="patients" element={<Patients />} />

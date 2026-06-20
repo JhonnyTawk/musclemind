@@ -39,12 +39,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!supabaseConfigured) {
-      const saved = sessionStorage.getItem('mm-demo-user')
-      if (saved) setUser(JSON.parse(saved))
-      setLoading(false)
-      return
-    }
+    if (!supabaseConfigured) { setLoading(false); return }  // real backend required
     supabase.auth.getSession().then(async ({ data }) => {
       if (data.session) await hydrateProfile(data.session.user)
       setLoading(false)
@@ -56,31 +51,39 @@ export function AuthProvider({ children }) {
     return () => sub.subscription.unsubscribe()
   }, [])
 
+  // Decide who the logged-in user is:
+  //   * a profiles row → clinic staff (admin / therapist)
+  //   * else a patients row linked by auth_user_id → patient
+  //   * else no access (account exists but isn't linked to anything)
   async function hydrateProfile(authUser) {
     const { data: profile } = await supabase
-      .from('profiles').select('*').eq('id', authUser.id).single()
-    setUser({
-      id: authUser.id, email: authUser.email,
-      name: profile?.full_name || authUser.email,
-      role: profile?.role || 'therapist',
-      title: profile?.title || 'Physiotherapist',
-    })
+      .from('profiles').select('*').eq('id', authUser.id).maybeSingle()
+    if (profile) {
+      setUser({
+        id: authUser.id, email: authUser.email,
+        name: profile.full_name || authUser.email,
+        role: profile.role || 'therapist',
+        title: profile.title || 'Physiotherapist',
+      })
+      return
+    }
+    const { data: patient } = await supabase
+      .from('patients').select('id, full_name').eq('auth_user_id', authUser.id).maybeSingle()
+    if (patient) {
+      setUser({ id: authUser.id, email: authUser.email, name: patient.full_name, role: 'patient', patientId: patient.id })
+      return
+    }
+    setUser({ id: authUser.id, email: authUser.email, role: null })  // unlinked account
   }
 
   const signIn = async (email, password) => {
-    if (!supabaseConfigured) {
-      const demo = { id: 't1', email: email || 'admin@musclemind.clinic', name: 'Nagham', role: 'admin', title: 'Physiotherapist · Clinic Owner' }
-      sessionStorage.setItem('mm-demo-user', JSON.stringify(demo))
-      setUser(demo)
-      return { error: null }
-    }
+    if (!supabaseConfigured) return { error: { message: 'The app is not connected to its database yet.' } }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     return { error }
   }
 
   const signOut = async () => {
     if (supabaseConfigured) await supabase.auth.signOut()
-    sessionStorage.removeItem('mm-demo-user')
     setUser(null)
   }
 
@@ -99,9 +102,11 @@ const DataCtx = createContext(null)
 export const useData = () => useContext(DataCtx)
 
 export function DataProvider({ children }) {
-  const [patients, setPatients] = useState(mock.PATIENTS)
-  const [logs, setLogs] = useState(mock.SYMPTOM_LOGS)
-  const [alerts, setAlerts] = useState(mock.ALERTS)
+  // Real data only — these start empty and are filled from Supabase.
+  const [patients, setPatients] = useState([])
+  const [logs, setLogs] = useState([])
+  const [alerts, setAlerts] = useState([])
+  const [appointments, setAppointments] = useState([])
   const [programs, setPrograms] = useState({})       // patientId -> program
   const [assessments, setAssessments] = useState({}) // patientId -> draft
   const [settings, setSettings] = useState(mock.DEFAULT_SETTINGS)
@@ -109,22 +114,28 @@ export function DataProvider({ children }) {
   const [availabilityBlocks, setAvailabilityBlocks] = useState([]) // blocked dates/times
   const [ready, setReady] = useState(!supabaseConfigured)
 
+  // Each query is RLS-scoped: staff get everything, a logged-in patient gets
+  // only their own rows, and anonymous visitors get nothing here.
   useEffect(() => {
     if (!supabaseConfigured) return
     ;(async () => {
       try {
-        const [{ data: ps }, { data: ls }, { data: as }, { data: bk }, { data: av }] = await Promise.all([
+        const [{ data: ps }, { data: ls }, { data: al }, { data: ap }, { data: pr }, { data: bk }, { data: av }] = await Promise.all([
           supabase.from('patients').select('*').order('last_visit', { ascending: false }),
           supabase.from('symptom_logs').select('*').order('date'),
           supabase.from('alerts').select('*').order('date', { ascending: false }),
+          supabase.from('appointments').select('*').order('date'),
+          supabase.from('exercise_programs').select('*'),
           supabase.from('bookings').select('*').order('created_at', { ascending: false }),
           supabase.from('availability_blocks').select('*').order('date'),
         ])
-        if (ps?.length) setPatients(ps.map(rowToPatient))
-        if (ls?.length) setLogs(ls.map(rowToLog))
-        if (as?.length) setAlerts(as.map((a) => ({ id: a.id, patientId: a.patient_id, severity: a.severity, kind: a.kind, text: a.text, date: a.date })))
-        if (bk?.length) setBookings(bk.map(rowToBooking))
-        if (av?.length) setAvailabilityBlocks(av.map(rowToBlock))
+        setPatients((ps || []).map(rowToPatient))
+        setLogs((ls || []).map(rowToLog))
+        setAlerts((al || []).map((a) => ({ id: a.id, patientId: a.patient_id, severity: a.severity, kind: a.kind, text: a.text, date: a.date })))
+        setAppointments((ap || []).map(rowToAppointment))
+        if (pr?.length) setPrograms(Object.fromEntries(pr.map((r) => [r.patient_id, r.program])))
+        setBookings((bk || []).map(rowToBooking))
+        setAvailabilityBlocks((av || []).map(rowToBlock))
       } finally { setReady(true) }
     })()
   }, [])
@@ -217,18 +228,60 @@ export function DataProvider({ children }) {
     }
   }
 
+  // ---- Appointments (real, RLS-scoped) ----
+  const addAppointment = async (appt) => {
+    const full = { id: 'a' + Math.random().toString(36).slice(2, 9), ...appt }
+    setAppointments((arr) => [...arr, full])
+    if (supabaseConfigured) {
+      const { data } = await supabase.from('appointments')
+        .insert({ patient_id: appt.patientId, date: appt.date, time: appt.time, type: appt.type, notes: appt.notes })
+        .select().single()
+      if (data) setAppointments((arr) => arr.map((x) => (x.id === full.id ? rowToAppointment(data) : x)))
+    }
+    return full
+  }
+  const deleteAppointment = async (id) => {
+    setAppointments((arr) => arr.filter((a) => a.id !== id))
+    if (supabaseConfigured) await supabase.from('appointments').delete().eq('id', id)
+  }
+
+  // ---- Patient portal credentials (secure: runs server-side) ----
+  // Calls the create-patient-user Edge Function, which verifies the caller
+  // is an admin and creates the login with the service-role key.
+  const generatePatientCredentials = async (patientId, email, password) => {
+    if (!supabaseConfigured) return { error: 'Backend not connected' }
+    const { data, error } = await supabase.functions.invoke('create-patient-user', {
+      body: { patientId, email, password },
+    })
+    if (error) {
+      let msg = error.message
+      try { msg = (await error.context?.json())?.error || msg } catch { /* ignore */ }
+      return { error: msg }
+    }
+    if (data?.error) return { error: data.error }
+    setPatients((arr) => arr.map((p) => (p.id === patientId ? { ...p, email, authUserId: data.userId } : p)))
+    return { data }
+  }
+
+  // Follow-ups are derived from patients who have a follow-up date set.
+  const followups = useMemo(
+    () => patients.filter((p) => p.followUpDate)
+      .map((p) => ({ id: 'fu-' + p.id, patientId: p.id, due: p.followUpDate, reason: p.followUpInstructions || 'Follow-up' })),
+    [patients],
+  )
+
   const value = useMemo(() => ({
     ready, patients, logs, alerts, programs, assessments, settings, setSettings,
-    bookings, availabilityBlocks,
+    bookings, availabilityBlocks, appointments, followups,
     therapists: mock.THERAPISTS, exercises: mock.EXERCISES,
-    appointments: mock.APPOINTMENTS, followups: mock.FOLLOWUPS,
     weeklyActivity: mock.WEEKLY_ACTIVITY, conditionsDist: mock.CONDITIONS_DIST,
     phaseDist: mock.PHASE_DIST, postureLogs: mock.POSTURE_LOGS,
     aclPhases: mock.ACL_PHASES, aclState: mock.ACL_PATIENT_STATE,
     outcomeTools: mock.OUTCOME_TOOLS,
     addPatient, updatePatient, addLog, dismissAlert, saveProgram, saveAssessment,
     addBooking, updateBooking, deleteBooking, addBlock, removeBlock,
-  }), [ready, patients, logs, alerts, programs, assessments, settings, bookings, availabilityBlocks])
+    addAppointment, deleteAppointment, generatePatientCredentials,
+  }), [ready, patients, logs, alerts, programs, assessments, settings, bookings, availabilityBlocks, appointments, followups])
 
   return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>
 }
@@ -242,6 +295,8 @@ const rowToPatient = (r) => ({
   rehabPhase: r.rehab_phase, history: r.history, surgical: r.surgical,
   medications: r.medications, goals: r.goals, redFlags: r.red_flags,
   frequency: r.frequency, progress: r.progress, shareToken: r.share_token, isACL: r.is_acl,
+  authUserId: r.auth_user_id, followUpDate: r.follow_up_date,
+  followUpInstructions: r.follow_up_instructions, portalNotes: r.portal_notes,
 })
 const patientToRow = (p, partial = false) => {
   const map = {
@@ -252,10 +307,15 @@ const patientToRow = (p, partial = false) => {
     rehab_phase: p.rehabPhase, history: p.history, surgical: p.surgical,
     medications: p.medications, goals: p.goals, red_flags: p.redFlags,
     frequency: p.frequency, progress: p.progress, share_token: p.shareToken, is_acl: p.isACL,
+    follow_up_date: p.followUpDate, follow_up_instructions: p.followUpInstructions,
+    portal_notes: p.portalNotes,
   }
   if (partial) Object.keys(map).forEach((k) => map[k] === undefined && delete map[k])
   return map
 }
+const rowToAppointment = (r) => ({
+  id: r.id, patientId: r.patient_id, date: r.date, time: r.time, type: r.type, notes: r.notes,
+})
 const rowToBooking = (r) => ({
   id: r.id, name: r.name, phone: r.phone, sessionType: r.session_type,
   requestedDate: r.requested_date, requestedTime: r.requested_time,

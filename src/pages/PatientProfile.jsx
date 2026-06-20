@@ -1,14 +1,158 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Phone, Mail, Briefcase, Dumbbell, Flag, Link2, ClipboardList,
-  Activity, StickyNote, Plus, GitBranch,
+  ArrowLeft, Phone, Mail, Briefcase, Dumbbell, Flag, KeyRound, ClipboardList,
+  Activity, StickyNote, Plus, GitBranch, Copy, MessageCircle, CalendarPlus, Save, RefreshCw,
 } from 'lucide-react'
 import { useData, useToast } from '../context/app'
-import { Card, CardHeader, Tabs, Avatar, Badge, StatusBadge, PainBadge, ProgressBar, EmptyState, Textarea } from '../components/ui'
+import { Card, CardHeader, Tabs, Avatar, Badge, StatusBadge, PainBadge, ProgressBar, EmptyState, Textarea, Modal, Field, Input, Select } from '../components/ui'
 import { TrendLine, TrendArea } from '../components/charts'
+import { waLink } from '../lib/schedule'
+import { SITE } from '../config/site'
 
 const TABS = ['Overview', 'Assessment', 'Exercises', 'Symptoms', 'Progress', 'Notes']
+
+const genPassword = () => {
+  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+const loginUrl = () => `${window.location.origin}${window.location.pathname}#/login`
+
+/* ---------------- Generate patient portal access ---------------- */
+function PortalAccessModal({ open, onClose, patient }) {
+  const { generatePatientCredentials } = useData()
+  const toast = useToast()
+  const [email, setEmail] = useState(patient.email || '')
+  const [password, setPassword] = useState(genPassword())
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState('')
+
+  const create = async () => {
+    setError('')
+    if (!email.trim()) { setError('Enter an email for the patient login'); return }
+    setBusy(true)
+    const { error } = await generatePatientCredentials(patient.id, email.trim(), password)
+    setBusy(false)
+    if (error) { setError(error); return }
+    setDone(true)
+    toast('Patient login created')
+  }
+
+  const credBlock =
+    `Your ${SITE.clinicName} portal\n` +
+    `Login: ${loginUrl()}\n` +
+    `Email: ${email}\n` +
+    `Password: ${password}\n` +
+    `(You can change your password after signing in.)`
+
+  return (
+    <Modal open={open} onClose={onClose} title="Patient portal access">
+      {!done ? (
+        <div className="space-y-4">
+          <p className="text-sm text-ink-3">
+            Create a private login so {patient.name.split(' ')[0]} can see their appointment,
+            exercises and follow-up — and nothing else.
+          </p>
+          <Field label="Patient login email">
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="patient@email.com" />
+          </Field>
+          <Field label="Temporary password" hint="Share this with the patient; they can change it later.">
+            <div className="flex gap-2">
+              <Input value={password} onChange={(e) => setPassword(e.target.value)} />
+              <button className="btn-secondary px-3" onClick={() => setPassword(genPassword())} aria-label="Regenerate"><RefreshCw size={15} /></button>
+            </div>
+          </Field>
+          {error && <p className="text-sm text-danger">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" disabled={busy} onClick={create}>
+              <KeyRound size={15} /> {busy ? 'Creating…' : 'Create login'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-800">
+            Login created. Send these details to the patient:
+          </div>
+          <pre className="text-sm bg-canvas border border-line rounded-xl p-4 whitespace-pre-wrap font-body">{credBlock}</pre>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-secondary" onClick={() => { navigator.clipboard?.writeText(credBlock); toast('Copied') }}>
+              <Copy size={15} /> Copy
+            </button>
+            {patient.phone && (
+              <a className="btn-primary" href={waLink(patient.phone, credBlock)} target="_blank" rel="noopener noreferrer">
+                <MessageCircle size={15} /> Send on WhatsApp
+              </a>
+            )}
+            <button className="btn-ghost ml-auto" onClick={onClose}>Done</button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+/* ---------------- Portal info: follow-up, notes, next appointment ---------------- */
+function PortalInfoCard({ patient }) {
+  const { updatePatient, addAppointment, appointments } = useData()
+  const toast = useToast()
+  const [followUpDate, setFollowUpDate] = useState(patient.followUpDate || '')
+  const [followUpInstructions, setFollowUpInstructions] = useState(patient.followUpInstructions || '')
+  const [portalNotes, setPortalNotes] = useState(patient.portalNotes || '')
+  const [appt, setAppt] = useState({ date: '', time: '', type: 'Follow-up' })
+
+  const upcoming = appointments
+    .filter((a) => a.patientId === patient.id && a.date >= new Date().toISOString().slice(0, 10))
+    .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
+
+  const saveInfo = async () => {
+    await updatePatient(patient.id, { followUpDate: followUpDate || null, followUpInstructions, portalNotes })
+    toast('Portal info saved')
+  }
+  const schedule = async () => {
+    if (!appt.date) { toast('Pick a date', 'error'); return }
+    await addAppointment({ patientId: patient.id, ...appt })
+    setAppt({ date: '', time: '', type: 'Follow-up' })
+    toast('Appointment scheduled')
+  }
+
+  return (
+    <Card className="p-5">
+      <h3 className="font-display font-semibold mb-1">Patient portal</h3>
+      <p className="text-xs text-ink-3 mb-4">What the patient sees when they sign in.</p>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Field label="Follow-up date"><Input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} /></Field>
+        <Field label="Follow-up instructions"><Input value={followUpInstructions} onChange={(e) => setFollowUpInstructions(e.target.value)} placeholder="e.g. Reassess knee ROM" /></Field>
+      </div>
+      <div className="mt-3">
+        <Field label="Notes for the patient" hint="Shown on their portal">
+          <Textarea value={portalNotes} onChange={(e) => setPortalNotes(e.target.value)} placeholder="Anything you'd like the patient to see…" />
+        </Field>
+      </div>
+      <button className="btn-primary mt-3" onClick={saveInfo}><Save size={15} /> Save portal info</button>
+
+      <div className="mt-5 pt-5 border-t border-line">
+        <div className="font-display font-semibold text-sm mb-2">Schedule next appointment</div>
+        {upcoming.length > 0 && (
+          <div className="mb-3 text-sm text-ink-3">
+            Next: <b className="text-ink">{upcoming[0].date}{upcoming[0].time ? ` · ${upcoming[0].time}` : ''}</b>{upcoming[0].type ? ` · ${upcoming[0].type}` : ''}
+          </div>
+        )}
+        <div className="grid sm:grid-cols-3 gap-3">
+          <Field label="Date"><Input type="date" value={appt.date} onChange={(e) => setAppt({ ...appt, date: e.target.value })} /></Field>
+          <Field label="Time"><Input type="time" value={appt.time} onChange={(e) => setAppt({ ...appt, time: e.target.value })} /></Field>
+          <Field label="Type"><Select value={appt.type} onChange={(e) => setAppt({ ...appt, type: e.target.value })}>
+            {['Follow-up', 'Assessment', 'Treatment session', 'Review'].map((t) => <option key={t}>{t}</option>)}
+          </Select></Field>
+        </div>
+        <button className="btn-secondary mt-3" onClick={schedule}><CalendarPlus size={15} /> Add appointment</button>
+      </div>
+    </Card>
+  )
+}
 
 function InfoRow({ icon: Icon, label, value }) {
   return (
@@ -28,6 +172,7 @@ export default function PatientProfile() {
   const toast = useToast()
   const { patients, therapists, logs, programs, assessments, aclState } = useData()
   const [tab, setTab] = useState('Overview')
+  const [portalOpen, setPortalOpen] = useState(false)
   const [notes, setNotes] = useState([
     { date: '2026-06-09', author: 'Omar Haddad', text: 'Reviewed home program technique — corrected squat depth and tempo. Patient motivated.' },
     { date: '2026-06-02', author: 'Omar Haddad', text: 'Session focused on single-leg control; mild fatigue valgus noted at rep 8+. Added lateral band walks.' },
@@ -44,10 +189,10 @@ export default function PatientProfile() {
   const acl = aclState[p.id]
   const painData = plogs.map((l) => ({ x: l.date.slice(5), pain: l.pain }))
   const funcData = plogs.map((l) => ({ x: l.date.slice(5), fn: l.function }))
-  const portalUrl = `${window.location.origin}${window.location.pathname}#/p/${p.shareToken}`
 
   return (
     <div className="space-y-5 fade-up">
+      <PortalAccessModal open={portalOpen} onClose={() => setPortalOpen(false)} patient={p} />
       <button onClick={() => navigate('/app/patients')} className="btn-ghost -ml-2"><ArrowLeft size={16} /> Patients</button>
 
       {/* header */}
@@ -64,8 +209,8 @@ export default function PatientProfile() {
             <div className="text-sm mt-1.5 text-ink-2">{p.diagnosis}</div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-secondary" onClick={() => { navigator.clipboard?.writeText(portalUrl); toast('Patient link copied — share it with the patient') }}>
-              <Link2 size={15} /> Copy patient link
+            <button className="btn-secondary" onClick={() => setPortalOpen(true)}>
+              <KeyRound size={15} /> {p.authUserId ? 'Manage portal access' : 'Generate portal access'}
             </button>
             <Link to="/app/assessment" className="btn-secondary"><ClipboardList size={15} /> New assessment</Link>
             <Link to="/app/exercises" className="btn-primary"><Dumbbell size={15} /> Exercise plan</Link>
@@ -112,6 +257,7 @@ export default function PatientProfile() {
             <InfoRow label="Treatment frequency" value={p.frequency} />
             <InfoRow label="Progress summary" value={p.progress} />
           </Card>
+          <div className="lg:col-span-3"><PortalInfoCard patient={p} /></div>
         </div>
       )}
 
@@ -189,8 +335,8 @@ export default function PatientProfile() {
           </div>
         ) : (
           <Card><EmptyState icon={Activity} title="No symptom logs yet"
-            sub="Share the patient link so daily logging can begin — trends will appear here."
-            action={<button className="btn-primary" onClick={() => { navigator.clipboard?.writeText(portalUrl); toast('Patient link copied') }}>Copy patient link</button>} /></Card>
+            sub="Give the patient portal access so daily logging can begin — trends will appear here."
+            action={<button className="btn-primary" onClick={() => setPortalOpen(true)}><KeyRound size={15} /> Generate portal access</button>} /></Card>
         )
       )}
 

@@ -1,13 +1,10 @@
 # MuscleMind — setup guide
 
-The app runs in two modes:
+This app is **fully backed by Supabase** — real accounts, real data, secure access.
+The public homepage works without any setup, but **sign-in and all patient data require
+the steps below.** There is no demo/offline mode.
 
-- **Demo mode (default):** no backend. Data lives in the browser session. Great for
-  showing the site; bookings/patients reset on refresh.
-- **Supabase mode:** real database + login. Turns on automatically once the two
-  environment variables below are set.
-
-You only need the steps below when you want real, persistent data.
+> Do the steps in order. Total time ~15 minutes.
 
 ---
 
@@ -24,10 +21,11 @@ You only need the steps below when you want real, persistent data.
 
 In Supabase, open **Database → SQL Editor** and run, in this order:
 
-1. `supabase/schema.sql`  (patients, logs, programs, profiles, RLS)
-2. `supabase/phase2.sql`  (bookings + availability, RLS)
+1. `supabase/schema.sql`   (patients, logs, programs, profiles)
+2. `supabase/phase2.sql`   (bookings + availability)
+3. `supabase/phase2b.sql`  (patient logins + appointments + **secure row-level security**)
 
-Both are safe to re-run.
+All are safe to re-run. Step 3 is what enforces "patients see only their own data".
 
 ## 3. Create your admin login (you only)
 
@@ -45,6 +43,37 @@ Both are safe to re-run.
    ```
 
 You can now sign in at `/login`.
+
+## 4. Deploy the patient-login function (one time)
+
+Creating a patient login needs a privileged key that must never live in the browser, so
+it runs inside a Supabase **Edge Function** (free).
+
+Using the [Supabase CLI](https://supabase.com/docs/guides/cli):
+
+```bash
+supabase login
+supabase link --project-ref YOUR-PROJECT-REF
+supabase functions deploy create-patient-user
+```
+
+No extra secrets are needed — Supabase injects the keys automatically. That's it; the
+**Generate portal access** button on a patient's profile will now work.
+
+---
+
+## How patient access works (secure by design)
+
+- On a patient's profile, click **Generate portal access** → enter their email, get a
+  temporary password, and send both to them (one-tap WhatsApp button included).
+- The patient signs in at the same `/login` page and is taken to **their** portal:
+  next appointment, prescribed exercises, follow-up date + instructions, and any notes
+  you wrote for them.
+- **Security:** every table uses Postgres Row-Level Security. A logged-in patient can
+  only ever read the single patient row linked to their account (and its program,
+  appointments and logs). They cannot see other patients, bookings, or staff data —
+  this is enforced by the database itself, not just the UI. Staff access is limited to
+  accounts that have a `profiles` row with an admin/therapist role.
 
 ---
 
