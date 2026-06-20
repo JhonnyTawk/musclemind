@@ -69,7 +69,7 @@ export function AuthProvider({ children }) {
 
   const signIn = async (email, password) => {
     if (!supabaseConfigured) {
-      const demo = { id: 't1', email: email || 'lina@musclemind.clinic', name: 'Dr. Lina Khoury', role: 'admin', title: 'Clinic Director · PT, DPT' }
+      const demo = { id: 't1', email: email || 'admin@musclemind.clinic', name: 'Nagham', role: 'admin', title: 'Physiotherapist · Clinic Owner' }
       sessionStorage.setItem('mm-demo-user', JSON.stringify(demo))
       setUser(demo)
       return { error: null }

@@ -15,7 +15,7 @@ export default function Login() {
 
   const submit = async (demo = false) => {
     setBusy(true); setError('')
-    const { error } = await signIn(demo ? 'lina@musclemind.clinic' : email, demo ? 'demo' : password)
+    const { error } = await signIn(demo ? 'admin@musclemind.clinic' : email, demo ? 'demo' : password)
     setBusy(false)
     if (error) { setError(error.message || 'Sign in failed. Check your email and password.'); return }
     navigate(sessionStorage.getItem('mm-onboarded') ? '/app' : '/welcome')
