@@ -33,14 +33,28 @@ All are safe to re-run. Step 3 is what enforces "patients see only their own dat
 2. **Authentication → Providers → Email:** turn **"Confirm email" OFF** so the login
    works immediately, and turn **"Allow new users to sign up" OFF** — there is no public
    registration; you are the only admin.
-3. Make yourself an admin: in **SQL Editor**, run
-   (replace the email with yours):
+3. Make yourself an admin: in **SQL Editor**, run this (replace the email with yours).
+   It **creates** your profile row if it doesn't exist and sets it to admin — use this
+   even if you created your user before running `schema.sql`:
 
    ```sql
-   update public.profiles
-   set role = 'admin', full_name = 'Chada Tawk', title = 'Physiotherapist'
-   where id = (select id from auth.users where email = 'YOUR-EMAIL');
+   insert into public.profiles (id, full_name, title, role)
+   select id, 'Chada Tawk', 'Physiotherapist', 'admin'
+   from auth.users
+   where email = 'YOUR-EMAIL'
+   on conflict (id) do update
+     set role = 'admin',
+         full_name = excluded.full_name,
+         title = excluded.title;
    ```
+
+   To confirm it worked, run:
+   ```sql
+   select u.email, p.role
+   from auth.users u left join public.profiles p on p.id = u.id
+   where u.email = 'YOUR-EMAIL';
+   ```
+   You should see `role = admin`. If `role` is null, the insert didn't match — check the email.
 
 You can now sign in at `/login`.
 
