@@ -19,13 +19,14 @@ the steps below.** There is no demo/offline mode.
 
 ## 2. Create the database tables
 
-In Supabase, open **Database → SQL Editor** and run, in this order:
+In Supabase, open **Database → SQL Editor → New query**, paste the entire contents of
+**`supabase/setup_all.sql`**, and click **Run**. That's it — one file.
 
-1. `supabase/schema.sql`   (patients, logs, programs, profiles)
-2. `supabase/phase2.sql`   (bookings + availability)
-3. `supabase/phase2b.sql`  (patient logins + appointments + **secure row-level security**)
+This creates every table, the secure row-level security, and the patient-portal support,
+with **no demo/sample patients**. You only run it once (re-run only if you reset the DB).
 
-All are safe to re-run. Step 3 is what enforces "patients see only their own data".
+> The older `schema.sql` / `phase2.sql` / `phase2b.sql` files are the same thing split in
+> three (and `schema.sql` adds demo patients). Prefer `setup_all.sql`.
 
 ## 3. Create your admin login (you only)
 
