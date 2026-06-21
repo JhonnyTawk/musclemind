@@ -157,6 +157,16 @@ function ContactForm() {
 export default function Landing() {
   const mapUrl = useMemo(() => mapEmbedUrl(), [])
 
+  // Smooth-scroll to a section. Needed because the app uses a hash router,
+  // which would otherwise treat "#about" as a route instead of an anchor.
+  const handleNav = (e) => {
+    const id = e.currentTarget.getAttribute('href')?.replace('#', '')
+    const el = id && document.getElementById(id)
+    if (!el) return
+    e.preventDefault()
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 72, behavior: 'smooth' })
+  }
+
   return (
     <div className="min-h-full bg-white">
       <header className="sticky top-0 z-30 bg-white/85 backdrop-blur border-b border-line">
@@ -164,11 +174,11 @@ export default function Landing() {
           <Logo />
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-ink-3">
             {NAV_LINKS.map((l) => (
-              <a key={l.href} href={l.href} className="hover:text-ink">{l.label}</a>
+              <a key={l.href} href={l.href} onClick={handleNav} className="hover:text-ink">{l.label}</a>
             ))}
           </nav>
           <div className="flex items-center gap-2">
-            <a href="#book" className="btn-primary">Book an appointment</a>
+            <a href="#book" onClick={handleNav} className="btn-primary">Book an appointment</a>
             <Link to="/login" className="btn-secondary hidden sm:inline-flex">Staff login</Link>
           </div>
         </div>
@@ -185,8 +195,8 @@ export default function Landing() {
             </h1>
             <p className="mt-5 text-lg text-ink-3 max-w-lg">{SITE.heroSubtitle}</p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <a href="#book" className="btn-primary text-base px-6 py-3">Book an appointment <ArrowRight size={17} /></a>
-              <a href="#about" className="btn-secondary text-base px-6 py-3">Learn more</a>
+              <a href="#book" onClick={handleNav} className="btn-primary text-base px-6 py-3">Book an appointment <ArrowRight size={17} /></a>
+              <a href="#about" onClick={handleNav} className="btn-secondary text-base px-6 py-3">Learn more</a>
             </div>
             <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink-3">
               {['One-on-one care', 'Personalized home program', 'Clear, measurable progress'].map((t) => (
@@ -244,7 +254,7 @@ export default function Landing() {
               “My promise is simple: you'll always know what we're working on, why it matters,
               and how far you've come. Recovery is a partnership.”
             </p>
-            <a href="#book" className="btn bg-white text-teal-800 hover:bg-teal-50 mt-7 w-full py-2.5">
+            <a href="#book" onClick={handleNav} className="btn bg-white text-teal-800 hover:bg-teal-50 mt-7 w-full py-2.5">
               Book with {SITE.about.practitionerName.split(' ')[0]} <ArrowRight size={16} />
             </a>
           </div>
@@ -387,7 +397,7 @@ export default function Landing() {
         <div className="card bg-gradient-to-br from-teal-600 to-teal-800 border-0 text-white p-10 text-center">
           <h2 className="font-display font-bold text-3xl">Ready to start your recovery?</h2>
           <p className="text-teal-50/80 mt-3">Book an appointment today — it only takes a minute.</p>
-          <a href="#book" className="btn bg-white text-teal-800 hover:bg-teal-50 text-base px-7 py-3 mt-7">
+          <a href="#book" onClick={handleNav} className="btn bg-white text-teal-800 hover:bg-teal-50 text-base px-7 py-3 mt-7">
             Book an appointment <ArrowRight size={17} />
           </a>
         </div>
