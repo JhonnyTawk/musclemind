@@ -160,6 +160,13 @@ export function DataProvider({ children }) {
     if (supabaseConfigured) await supabase.from('patients').update(patientToRow(patch, true)).eq('id', id)
   }
 
+  const deletePatient = async (id) => {
+    setPatients((arr) => arr.filter((p) => p.id !== id))
+    setLogs((arr) => arr.filter((l) => l.patientId !== id))
+    setAppointments((arr) => arr.filter((a) => a.patientId !== id))
+    if (supabaseConfigured) await supabase.from('patients').delete().eq('id', id)
+  }
+
   const addLog = async (log) => {
     const full = { id: 'l' + Math.random().toString(36).slice(2, 9), date: new Date().toISOString().slice(0, 10), ...log }
     setLogs((arr) => [...arr, full])
@@ -278,7 +285,7 @@ export function DataProvider({ children }) {
     phaseDist: mock.PHASE_DIST, postureLogs: mock.POSTURE_LOGS,
     aclPhases: mock.ACL_PHASES, aclState: mock.ACL_PATIENT_STATE,
     outcomeTools: mock.OUTCOME_TOOLS,
-    addPatient, updatePatient, addLog, dismissAlert, saveProgram, saveAssessment,
+    addPatient, updatePatient, deletePatient, addLog, dismissAlert, saveProgram, saveAssessment,
     addBooking, updateBooking, deleteBooking, addBlock, removeBlock,
     addAppointment, deleteAppointment, generatePatientCredentials,
   }), [ready, patients, logs, alerts, programs, assessments, settings, bookings, availabilityBlocks, appointments, followups])

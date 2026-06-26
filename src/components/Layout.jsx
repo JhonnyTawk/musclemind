@@ -15,7 +15,6 @@ const NAV = [
   { to: '/app/assessment', label: 'Assessment Form', icon: ClipboardList },
   { to: '/app/exercises', label: 'Home Exercise Program', icon: Dumbbell },
   { to: '/app/symptoms', label: 'Symptom Tracker', icon: Activity },
-  { to: '/app/acl', label: 'ACL Rehab Timeline', icon: GitBranch },
   { to: '/app/reports', label: 'Reports', icon: FileBarChart2 },
   { to: '/app/settings', label: 'Settings', icon: Settings },
 ]

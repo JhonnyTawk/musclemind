@@ -1,12 +1,21 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, SlidersHorizontal } from 'lucide-react'
-import { useData } from '../context/app'
-import { Card, Avatar, StatusBadge, PainBadge, EmptyState, Select } from '../components/ui'
+import { Search, Users, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { useData, useToast } from '../context/app'
+import { Card, Avatar, StatusBadge, PainBadge, EmptyState, Select, Modal } from '../components/ui'
 
 export default function Patients() {
-  const { patients, therapists, followups } = useData()
+  const { patients, therapists, followups, deletePatient } = useData()
+  const toast = useToast()
   const navigate = useNavigate()
+  const [toDelete, setToDelete] = useState(null)
+
+  const confirmDelete = async () => {
+    if (!toDelete) return
+    await deletePatient(toDelete.id)
+    toast(`${toDelete.name} removed`)
+    setToDelete(null)
+  }
   const [q, setQ] = useState('')
   const [condition, setCondition] = useState('All')
   const [therapist, setTherapist] = useState('All')
@@ -83,6 +92,7 @@ export default function Patients() {
               <thead>
                 <tr>
                   {['Patient ID', 'Full name', 'Age', 'Gender', 'Main complaint', 'Diagnosis', 'Therapist', 'Last visit', 'Pain', 'Status'].map((h) => <th key={h} className="th">{h}</th>)}
+                  <th className="th text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -106,6 +116,14 @@ export default function Patients() {
                       <td className="td whitespace-nowrap text-ink-3">{p.lastVisit}</td>
                       <td className="td"><PainBadge score={p.painNow} /></td>
                       <td className="td"><StatusBadge status={p.status} /></td>
+                      <td className="td text-right">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setToDelete(p) }}
+                          className="btn-ghost p-1.5 rounded-lg text-ink-3 hover:text-danger hover:bg-red-50"
+                          aria-label={`Delete ${p.name}`}>
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
@@ -114,6 +132,20 @@ export default function Patients() {
           </div>
         )}
       </Card>
+
+      <Modal open={!!toDelete} onClose={() => setToDelete(null)} title="Remove patient?">
+        <p className="text-sm text-ink-2">
+          This permanently removes <b>{toDelete?.name}</b> and all of their records
+          (symptom logs, program and appointments). This cannot be undone.
+        </p>
+        <p className="text-xs text-ink-3 mt-2">
+          If they had a patient login, it will stop working.
+        </p>
+        <div className="flex justify-end gap-2 mt-6">
+          <button className="btn-secondary" onClick={() => setToDelete(null)}>Cancel</button>
+          <button className="btn-danger" onClick={confirmDelete}><Trash2 size={15} /> Delete patient</button>
+        </div>
+      </Modal>
     </div>
   )
 }

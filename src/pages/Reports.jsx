@@ -1,48 +1,170 @@
 import { useMemo, useState } from 'react'
-import { FileText, Printer, Mail, Download, AlertTriangle, FilePlus2 } from 'lucide-react'
+import { Printer, AlertTriangle, FilePlus2, HeartPulse } from 'lucide-react'
 import { useData, useToast } from '../context/app'
 import { Card, CardHeader, Badge, Select, Modal } from '../components/ui'
-import { TrendLine, Bars, Gauge } from '../components/charts'
+import { TrendLine, Gauge } from '../components/charts'
+import { SITE } from '../config/site'
 
 const REPORT_TYPES = [
-  { key: 'initial', name: 'Initial assessment report', desc: 'Full intake findings, impression and plan of care.' },
-  { key: 'progress', name: 'Progress report', desc: 'Symptom trends, adherence and goal status since last review.' },
-  { key: 'hep', name: 'Home exercise handout', desc: 'Patient-friendly program with dosage and safety notes.' },
-  { key: 'acl', name: 'ACL milestone report', desc: 'Phase status, criteria met and readiness indicators.' },
-  { key: 'discharge', name: 'Discharge summary', desc: 'Outcome measures, final status and maintenance plan.' },
+  { key: 'progress', name: 'Progress report', desc: 'Symptom trends, adherence and goal status since the last review.' },
+  { key: 'initial', name: 'Initial assessment report', desc: 'Intake findings, working diagnosis and plan of care.' },
+  { key: 'discharge', name: 'Discharge summary', desc: 'Outcome, final status and maintenance plan.' },
 ]
 
-const ROM_PROGRESS = [
-  { x: 'Wk 2', flexion: 85, extension: -8 }, { x: 'Wk 4', flexion: 105, extension: -4 },
-  { x: 'Wk 6', flexion: 118, extension: -2 }, { x: 'Wk 8', flexion: 126, extension: -1 },
-  { x: 'Wk 10', flexion: 132, extension: 0 }, { x: 'Wk 11', flexion: 135, extension: 0 },
-]
-const STRENGTH = [
-  { x: 'Quads', involved: 78, other: 100 }, { x: 'Hams', involved: 84, other: 100 },
-  { x: 'Hip abd', involved: 90, other: 100 }, { x: 'Calf', involved: 95, other: 100 },
-]
-const SCORES = [
-  { x: 'Intake', KOOS: 48, PSFS: 3.1 }, { x: 'Wk 4', KOOS: 61, PSFS: 4.8 },
-  { x: 'Wk 8', KOOS: 72, PSFS: 6.4 }, { x: 'Wk 11', KOOS: 79, PSFS: 7.2 },
-]
+const fmtDate = (d) => { try { return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return d || '—' } }
+
+// Compute simple, real progress stats from a patient's symptom logs.
+function useStats(rows, patient) {
+  return useMemo(() => {
+    if (!rows.length) return { pain: null, fn: null, adherence: patient?.adherence ?? null, count: 0 }
+    const first = rows[0], last = rows[rows.length - 1]
+    const last14 = rows.slice(-14)
+    const done = last14.filter((r) => r.exercisesDone).length
+    return {
+      pain: { from: first.pain, to: last.pain },
+      fn: { from: first.function, to: last.function },
+      adherence: last14.length ? Math.round((done / last14.length) * 100) : (patient?.adherence ?? null),
+      count: rows.length,
+    }
+  }, [rows, patient])
+}
+
+/* ------------------ The printable, branded report ------------------ */
+function ReportDocument({ patient, type, rows, program, stats }) {
+  const painData = rows.map((r) => ({ x: r.date.slice(5), pain: r.pain }))
+  const fnData = rows.map((r) => ({ x: r.date.slice(5), fn: r.function }))
+  const Row = ({ label, value }) => value ? (
+    <div className="py-1.5 border-b border-line/70 last:border-0 flex gap-3">
+      <div className="w-40 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-3">{label}</div>
+      <div className="text-sm text-ink-2">{value}</div>
+    </div>
+  ) : null
+
+  return (
+    <div id="print-area" className="bg-white text-ink">
+      {/* letterhead */}
+      <div className="flex items-center justify-between border-b-2 border-teal-600 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="h-11 w-11 rounded-xl bg-teal-600 text-white flex items-center justify-center"><HeartPulse size={22} /></div>
+          <div>
+            <div className="font-display font-bold text-lg leading-tight">{SITE.clinicName}</div>
+            <div className="text-xs text-ink-3">{SITE.about.practitionerName} · {SITE.about.practitionerTitle}</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="font-display font-semibold">{type.name}</div>
+          <div className="text-xs text-ink-3">Generated {fmtDate(new Date())}</div>
+        </div>
+      </div>
+
+      {/* patient identity */}
+      <div className="grid sm:grid-cols-2 gap-x-8 mt-5">
+        <Row label="Patient" value={patient.name} />
+        <Row label="Patient ID" value={patient.code} />
+        <Row label="Age / Gender" value={[patient.age && `${patient.age}y`, patient.gender].filter(Boolean).join(' · ')} />
+        <Row label="Status" value={patient.status} />
+        <Row label="Phone" value={patient.phone} />
+        <Row label="Last visit" value={fmtDate(patient.lastVisit)} />
+      </div>
+
+      {/* injury / clinical summary */}
+      <h3 className="font-display font-semibold text-teal-800 mt-6 mb-1">Injury & clinical summary</h3>
+      <div className="grid sm:grid-cols-2 gap-x-8">
+        <Row label="Main complaint" value={patient.complaint} />
+        <Row label="Diagnosis" value={patient.diagnosis} />
+        <Row label="History" value={patient.history} />
+        <Row label="Surgical history" value={patient.surgical} />
+        <Row label="Medications" value={patient.medications} />
+        <Row label="Treatment frequency" value={patient.frequency} />
+      </div>
+
+      {/* progress */}
+      <h3 className="font-display font-semibold text-teal-800 mt-6 mb-2">Progress</h3>
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          ['Pain', stats.pain ? `${stats.pain.from} → ${stats.pain.to}/10` : '—'],
+          ['Function', stats.fn ? `${stats.fn.from} → ${stats.fn.to}/10` : '—'],
+          ['Adherence', stats.adherence != null ? `${stats.adherence}%` : '—'],
+        ].map(([l, v]) => (
+          <div key={l} className="rounded-xl bg-canvas p-3 text-center">
+            <div className="font-display font-bold text-lg">{v}</div>
+            <div className="text-[11px] text-ink-3">{l}</div>
+          </div>
+        ))}
+      </div>
+      {patient.progress && <p className="text-sm text-ink-2 mt-3 leading-relaxed">{patient.progress}</p>}
+
+      {/* trend chart (real) */}
+      {painData.length > 1 && (
+        <div className="mt-4 grid sm:grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-1">Pain over time</div>
+            <TrendLine data={painData} lines={[{ key: 'pain', name: 'Pain' }]} yDomain={[0, 10]} height={150} />
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-1">Function over time</div>
+            <TrendLine data={fnData} lines={[{ key: 'fn', name: 'Function' }]} yDomain={[0, 10]} height={150} />
+          </div>
+        </div>
+      )}
+
+      {/* goals */}
+      {patient.goals && (
+        <>
+          <h3 className="font-display font-semibold text-teal-800 mt-6 mb-1">Goals</h3>
+          <p className="text-sm text-ink-2 leading-relaxed">{patient.goals}</p>
+        </>
+      )}
+
+      {/* exercises */}
+      {program?.items?.length > 0 && (
+        <>
+          <h3 className="font-display font-semibold text-teal-800 mt-6 mb-2">Prescribed home program</h3>
+          <ul className="space-y-1.5">
+            {program.items.map((it, i) => (
+              <li key={i} className="text-sm flex gap-2">
+                <span className="text-teal-600 font-semibold">{i + 1}.</span>
+                <span><b>{it.name}</b> — {it.sets}×{it.reps}{it.hold ? ` · hold ${it.hold}s` : ''} · {it.frequency}{it.section ? ` · ${it.section}` : ''}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* signature + brand footer (no website) */}
+      <div className="mt-10 flex items-end justify-between">
+        <div>
+          <div className="h-px w-48 bg-ink/40" />
+          <div className="text-xs text-ink-3 mt-1">{SITE.about.practitionerName}, {SITE.about.practitionerTitle}</div>
+        </div>
+        <div className="text-right text-xs text-ink-3">
+          <div className="font-display font-bold text-teal-700">{SITE.clinicName}</div>
+          <div>{SITE.findUs.address}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Reports() {
-  const { patients, logs } = useData()
+  const { patients, logs, programs } = useData()
   const toast = useToast()
   const [patientId, setPatientId] = useState('')
-  const [genOpen, setGenOpen] = useState(null)
+  const [type, setType] = useState(null)
 
   const patient = patients.find((p) => p.id === patientId) || patients[0]
   const rows = useMemo(() => logs.filter((l) => l.patientId === patient?.id).slice(-30), [logs, patient])
+  const stats = useStats(rows, patient)
+  const program = patient ? programs[patient.id] : null
   const painData = rows.map((r) => ({ x: r.date.slice(5), pain: r.pain }))
-  const highRisk = patients.filter((p) => p.status === 'Active' && (p.painNow >= 6 || p.adherence < 65))
+  const highRisk = patients.filter((p) => p.status === 'Active' && (p.painNow >= 6 || (p.adherence ?? 100) < 65))
 
   return (
     <div className="space-y-5 fade-up">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display font-bold text-2xl">Reports</h1>
-          <p className="text-sm text-ink-3 mt-1">Progress summaries and printable clinical documents.</p>
+          <p className="text-sm text-ink-3 mt-1">Progress summaries built from each patient's real data — printable as PDF.</p>
         </div>
         <Select className="input w-52" value={patient?.id || ''} onChange={(e) => setPatientId(e.target.value)}>
           {patients.length === 0 && <option value="">No patients yet</option>}
@@ -50,97 +172,69 @@ export default function Reports() {
         </Select>
       </div>
 
-      {/* widgets */}
-      <div className="grid lg:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader title="Pain trend" sub={`${patient?.name} · last 30 days`} />
-          <div className="px-3 pb-4">
-            {painData.length ? <TrendLine data={painData} lines={[{ key: 'pain', name: 'Pain' }]} yDomain={[0, 10]} height={185} />
-              : <p className="px-3 pb-4 text-sm text-ink-3">No symptom logs for this patient yet.</p>}
+      {!patient ? (
+        <Card className="p-10 text-center text-ink-3">Add a patient to generate reports.</Card>
+      ) : (
+        <>
+          {/* live snapshot */}
+          <div className="grid lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-2">
+              <CardHeader title="Pain trend" sub={`${patient.name} · last ${rows.length} logged days`} />
+              <div className="px-3 pb-4">
+                {painData.length ? <TrendLine data={painData} lines={[{ key: 'pain', name: 'Pain' }]} yDomain={[0, 10]} height={190} />
+                  : <p className="px-3 pb-6 text-sm text-ink-3">No symptom logs for this patient yet.</p>}
+              </div>
+            </Card>
+            <Card>
+              <CardHeader title="Exercise adherence" sub="Last 2 weeks" />
+              <div className="px-2 pb-2"><Gauge value={stats.adherence ?? 0} label="completed sessions" height={170} /></div>
+            </Card>
           </div>
-        </Card>
-        <Card>
-          <CardHeader title="ROM progress" sub="Knee flexion across the program (sample)" />
-          <div className="px-3 pb-4"><TrendLine data={ROM_PROGRESS} lines={[{ key: 'flexion', name: 'Flexion °' }]} height={185} /></div>
-        </Card>
-        <Card>
-          <CardHeader title="Strength comparison" sub="% of uninvolved side (sample)" />
-          <div className="px-3 pb-4"><Bars data={STRENGTH} bars={[{ key: 'involved', name: 'Involved %' }]} height={185} /></div>
-        </Card>
-        <Card>
-          <CardHeader title="Functional scores" sub="KOOS and PSFS over the episode (sample)" />
-          <div className="px-3 pb-4"><TrendLine data={SCORES} lines={[{ key: 'KOOS' }, { key: 'PSFS', color: '#B45309' }]} height={185} /></div>
-        </Card>
-        <Card>
-          <CardHeader title="Exercise adherence" sub="This month" />
-          <div className="px-2 pb-2"><Gauge value={patient?.adherence ?? 0} label="completed sessions" height={160} /></div>
-        </Card>
-        <Card>
-          <CardHeader title="Phase progression" sub="Rehab phases this episode (sample)" />
-          <div className="px-5 pb-5 space-y-2.5">
-            {['Protection', 'Early strength', 'Neuromuscular', 'Advanced strength'].map((p, i) => (
-              <div key={p} className="flex items-center gap-3">
-                <span className="text-sm w-36 shrink-0">{i + 1}. {p}</span>
-                <div className="h-2 flex-1 rounded-full bg-teal-50 overflow-hidden">
-                  <div className="h-full bg-teal-600" style={{ width: i < 2 ? '100%' : i === 2 ? '62%' : '0%' }} />
+
+          {/* high risk */}
+          <Card>
+            <CardHeader title="High-risk patients" sub="Active patients with pain ≥ 6 or adherence < 65%"
+              right={<Badge color={highRisk.length ? 'red' : 'green'}>{highRisk.length} flagged</Badge>} />
+            <div className="px-5 pb-5 space-y-2">
+              {highRisk.map((p) => (
+                <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-100 bg-amber-50/50 p-3 text-sm">
+                  <AlertTriangle size={16} className="text-amber2" />
+                  <span className="font-semibold">{p.name}</span>
+                  <span className="text-ink-3">{p.diagnosis}</span>
+                  <span className="ml-auto flex gap-2">
+                    {p.painNow >= 6 && <Badge color="red">Pain {p.painNow}/10</Badge>}
+                    {(p.adherence ?? 100) < 65 && <Badge color="amber">Adherence {p.adherence}%</Badge>}
+                  </span>
                 </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* high risk */}
-      <Card>
-        <CardHeader title="High-risk patient alerts" sub="Active patients with pain ≥ 6 or adherence < 65%"
-          right={<Badge color={highRisk.length ? 'red' : 'green'}>{highRisk.length} flagged</Badge>} />
-        <div className="px-5 pb-5 space-y-2">
-          {highRisk.map((p) => (
-            <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-100 bg-amber-50/50 p-3 text-sm">
-              <AlertTriangle size={16} className="text-amber2" />
-              <span className="font-semibold">{p.name}</span>
-              <span className="text-ink-3">{p.diagnosis}</span>
-              <span className="ml-auto flex gap-2">
-                {p.painNow >= 6 && <Badge color="red">Pain {p.painNow}/10</Badge>}
-                {p.adherence < 65 && <Badge color="amber">Adherence {p.adherence}%</Badge>}
-              </span>
+              ))}
+              {highRisk.length === 0 && <p className="text-sm text-ink-3">No active patients currently meet risk criteria.</p>}
             </div>
-          ))}
-          {highRisk.length === 0 && <p className="text-sm text-ink-3">No active patients currently meet risk criteria.</p>}
-        </div>
-      </Card>
+          </Card>
 
-      {/* generators */}
-      <Card>
-        <CardHeader title="Generate a report" sub={`Documents are generated for ${patient?.name}`} />
-        <div className="px-5 pb-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {REPORT_TYPES.map((r) => (
-            <button key={r.key} onClick={() => setGenOpen(r)} className="rounded-2xl border border-line p-4 text-left hover:border-teal-300 hover:shadow-card transition group">
-              <div className="h-9 w-9 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center mb-3 group-hover:bg-teal-600 group-hover:text-white transition-colors"><FilePlus2 size={17} /></div>
-              <div className="font-display font-semibold text-sm">{r.name}</div>
-              <p className="text-xs text-ink-3 mt-1">{r.desc}</p>
-            </button>
-          ))}
-        </div>
-      </Card>
+          {/* generators */}
+          <Card>
+            <CardHeader title="Generate a report" sub={`A branded, printable document for ${patient.name}`} />
+            <div className="px-5 pb-5 grid sm:grid-cols-3 gap-3">
+              {REPORT_TYPES.map((r) => (
+                <button key={r.key} onClick={() => setType(r)} className="rounded-2xl border border-line p-4 text-left hover:border-teal-300 hover:shadow-card transition group">
+                  <div className="h-9 w-9 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center mb-3 group-hover:bg-teal-600 group-hover:text-white transition-colors"><FilePlus2 size={17} /></div>
+                  <div className="font-display font-semibold text-sm">{r.name}</div>
+                  <p className="text-xs text-ink-3 mt-1">{r.desc}</p>
+                </button>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
 
-      <Modal open={!!genOpen} onClose={() => setGenOpen(null)} title={genOpen?.name || ''} wide>
-        {genOpen && (
+      {/* report preview + print */}
+      <Modal open={!!type && !!patient} onClose={() => setType(null)} title={type?.name || ''} wide>
+        {type && patient && (
           <div>
-            <div className="rounded-xl border border-line p-5 bg-canvas">
-              <div className="flex items-center gap-2 text-teal-700 font-display font-bold"><FileText size={18} /> MuscleMind · {genOpen.name}</div>
-              <div className="mt-4 space-y-2 text-sm">
-                <p><b>Patient:</b> {patient?.name} ({patient?.code}) · {patient?.age}y</p>
-                <p><b>Diagnosis:</b> {patient?.diagnosis}</p>
-                <p><b>Summary:</b> {patient?.progress}</p>
-                <p><b>Goals:</b> {patient?.goals}</p>
-                <p className="text-ink-3 italic">Generated {new Date().toLocaleDateString('en-GB')} — preview of the formatted document.</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-5">
-              <button className="btn-primary" onClick={() => { window.print() }}><Download size={15} /> Export PDF</button>
-              <button className="btn-secondary" onClick={() => { window.print() }}><Printer size={15} /> Print</button>
-              <button className="btn-secondary" onClick={() => { toast(`${genOpen.name} emailed to ${patient?.email}`); setGenOpen(null) }}><Mail size={15} /> Email</button>
+            <ReportDocument patient={patient} type={type} rows={rows} program={program} stats={stats} />
+            <div className="no-print flex flex-wrap gap-2 mt-6 pt-4 border-t border-line">
+              <button className="btn-primary" onClick={() => window.print()}><Printer size={15} /> Download / Print PDF</button>
+              <button className="btn-secondary ml-auto" onClick={() => setType(null)}>Close</button>
             </div>
           </div>
         )}

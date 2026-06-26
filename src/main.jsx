@@ -14,7 +14,6 @@ import PatientProfile from './pages/PatientProfile'
 import Assessment from './pages/Assessment'
 import HEP from './pages/HEP'
 import Symptoms from './pages/Symptoms'
-import ACL from './pages/ACL'
 import Reports from './pages/Reports'
 import SettingsPage from './pages/Settings'
 import Portal from './pages/Portal'
@@ -56,7 +55,6 @@ function App() {
         <Route path="assessment" element={<Assessment />} />
         <Route path="exercises" element={<HEP />} />
         <Route path="symptoms" element={<Symptoms />} />
-        <Route path="acl" element={<ACL />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

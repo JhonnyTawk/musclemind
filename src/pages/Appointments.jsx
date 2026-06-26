@@ -25,6 +25,13 @@ function BookingCard({ b }) {
     window.open(waLink(b.phone, text), '_blank', 'noopener')
   }
 
+  // Accept the request and immediately message the person who booked.
+  const confirmAndNotify = () => {
+    updateBooking(b.id, { status: 'confirmed' })
+    if (b.phone) openWa(confirmMessage)
+    else toast('Confirmed — add a phone number to message them')
+  }
+
   const addToCalendar = () => {
     if (!b.requestedDate) { toast('Set a date first', 'error'); return }
     const ics = buildIcs({
@@ -61,8 +68,8 @@ function BookingCard({ b }) {
       {/* status actions */}
       <div className="flex flex-wrap gap-2 mt-4">
         {b.status !== 'confirmed' && (
-          <button className="btn-primary text-xs px-3 py-1.5" onClick={() => updateBooking(b.id, { status: 'confirmed' })}>
-            <Check size={14} /> Confirm
+          <button className="btn-primary text-xs px-3 py-1.5" onClick={confirmAndNotify}>
+            <Check size={14} /> Accept &amp; WhatsApp
           </button>
         )}
         {b.status !== 'done' && (
@@ -226,7 +233,9 @@ export default function Appointments() {
       <div>
         <h1 className="font-display font-bold text-2xl">Appointments</h1>
         <p className="text-ink-3 text-sm mt-1">
-          Manage booking requests, send WhatsApp confirmations and reminders, and block time off.
+          Booking requests from your website land here. Accept one (it WhatsApps the client a
+          confirmation), decline it, or change the date/time to reschedule — plus send reminders
+          and block time off.
         </p>
       </div>
 

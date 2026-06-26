@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Phone, Mail, Briefcase, Dumbbell, Flag, KeyRound, ClipboardList,
-  Activity, StickyNote, Plus, GitBranch, Copy, MessageCircle, CalendarPlus, Save, RefreshCw,
+  Activity, StickyNote, Plus, GitBranch, Copy, MessageCircle, CalendarPlus, Save, RefreshCw, Pencil,
 } from 'lucide-react'
 import { useData, useToast } from '../context/app'
 import { Card, CardHeader, Tabs, Avatar, Badge, StatusBadge, PainBadge, ProgressBar, EmptyState, Textarea, Modal, Field, Input, Select } from '../components/ui'
@@ -154,6 +154,58 @@ function PortalInfoCard({ patient }) {
   )
 }
 
+/* ---------------- Edit patient details ---------------- */
+function EditPatientModal({ open, onClose, patient }) {
+  const { updatePatient } = useData()
+  const toast = useToast()
+  const [form, setForm] = useState(patient)
+  // keep the form in sync if a different patient is opened
+  if (open && form.id !== patient.id) setForm(patient)
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+
+  const save = async () => {
+    await updatePatient(patient.id, {
+      name: form.name, code: form.code, age: form.age ? +form.age : null, gender: form.gender,
+      phone: form.phone, email: form.email, occupation: form.occupation, activity: form.activity,
+      complaint: form.complaint, diagnosis: form.diagnosis, frequency: form.frequency,
+      goals: form.goals, status: form.status, progress: form.progress,
+    })
+    toast('Patient updated')
+    onClose()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Edit patient" wide>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Field label="Full name"><Input value={form.name || ''} onChange={set('name')} /></Field>
+        <Field label="Patient ID"><Input value={form.code || ''} onChange={set('code')} /></Field>
+        <Field label="Age"><Input type="number" value={form.age ?? ''} onChange={set('age')} /></Field>
+        <Field label="Gender">
+          <Select value={form.gender || ''} onChange={set('gender')}>
+            <option value="">—</option><option>Female</option><option>Male</option><option>Other</option>
+          </Select>
+        </Field>
+        <Field label="Phone"><Input value={form.phone || ''} onChange={set('phone')} placeholder="+961 ..." /></Field>
+        <Field label="Email"><Input type="email" value={form.email || ''} onChange={set('email')} /></Field>
+        <Field label="Occupation"><Input value={form.occupation || ''} onChange={set('occupation')} /></Field>
+        <Field label="Sport / activity"><Input value={form.activity || ''} onChange={set('activity')} /></Field>
+        <div className="sm:col-span-2"><Field label="Main complaint"><Input value={form.complaint || ''} onChange={set('complaint')} /></Field></div>
+        <div className="sm:col-span-2"><Field label="Diagnosis"><Input value={form.diagnosis || ''} onChange={set('diagnosis')} /></Field></div>
+        <Field label="Treatment frequency"><Input value={form.frequency || ''} onChange={set('frequency')} placeholder="e.g. 1×/week" /></Field>
+        <Field label="Status">
+          <Select value={form.status || 'Active'} onChange={set('status')}><option>Active</option><option>Discharged</option></Select>
+        </Field>
+        <div className="sm:col-span-2"><Field label="Goals"><Textarea value={form.goals || ''} onChange={set('goals')} /></Field></div>
+        <div className="sm:col-span-2"><Field label="Progress summary"><Textarea value={form.progress || ''} onChange={set('progress')} /></Field></div>
+      </div>
+      <div className="flex justify-end gap-2 mt-6">
+        <button className="btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn-primary" onClick={save}><Save size={15} /> Save changes</button>
+      </div>
+    </Modal>
+  )
+}
+
 function InfoRow({ icon: Icon, label, value }) {
   return (
     <div className="flex items-start gap-3 py-2.5 border-b border-line last:border-0">
@@ -173,6 +225,7 @@ export default function PatientProfile() {
   const { patients, therapists, logs, programs, assessments, aclState } = useData()
   const [tab, setTab] = useState('Overview')
   const [portalOpen, setPortalOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const [notes, setNotes] = useState([
     { date: '2026-06-09', author: 'Omar Haddad', text: 'Reviewed home program technique — corrected squat depth and tempo. Patient motivated.' },
     { date: '2026-06-02', author: 'Omar Haddad', text: 'Session focused on single-leg control; mild fatigue valgus noted at rep 8+. Added lateral band walks.' },
@@ -193,6 +246,7 @@ export default function PatientProfile() {
   return (
     <div className="space-y-5 fade-up">
       <PortalAccessModal open={portalOpen} onClose={() => setPortalOpen(false)} patient={p} />
+      <EditPatientModal open={editOpen} onClose={() => setEditOpen(false)} patient={p} />
       <button onClick={() => navigate('/app/patients')} className="btn-ghost -ml-2"><ArrowLeft size={16} /> Patients</button>
 
       {/* header */}
@@ -209,6 +263,9 @@ export default function PatientProfile() {
             <div className="text-sm mt-1.5 text-ink-2">{p.diagnosis}</div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button className="btn-secondary" onClick={() => setEditOpen(true)}>
+              <Pencil size={15} /> Edit
+            </button>
             <button className="btn-secondary" onClick={() => setPortalOpen(true)}>
               <KeyRound size={15} /> {p.authUserId ? 'Manage portal access' : 'Generate portal access'}
             </button>

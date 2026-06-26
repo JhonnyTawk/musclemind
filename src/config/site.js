@@ -30,7 +30,6 @@ export const SITE = {
     focusAreas: [
       'Post-surgical rehab',
       'Sports injuries',
-      'ACL recovery',
       'Back & neck pain',
       'Posture & movement',
     ],
@@ -93,7 +92,7 @@ export const SITE = {
     sessionTypes: [
       'Initial assessment',
       'Follow-up session',
-      'Sports / ACL rehab',
+      'Sports injury',
       'Other (tell us below)',
     ],
   },

@@ -71,7 +71,7 @@ export default function Dashboard() {
     { icon: ClipboardList, label: 'New assessment', to: '/app/assessment' },
     { icon: Dumbbell, label: 'Create exercise plan', to: '/app/exercises' },
     { icon: Activity, label: 'Track symptoms', to: '/app/symptoms' },
-    { icon: GitBranch, label: 'ACL rehab progression', to: '/app/acl' },
+    { icon: CalendarDays, label: 'Appointments', to: '/app/appointments' },
   ]
 
   return (
