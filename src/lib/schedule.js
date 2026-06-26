@@ -76,6 +76,17 @@ export function buildIcs({ title, description = '', location = '', date, time, d
   ].filter(Boolean).join('\r\n')
 }
 
+// "Add to Google Calendar" link — free, no API. Opens a pre-filled event.
+export function googleCalendarLink({ title, date, time, durationMin = 45, details = '', location = '' }) {
+  if (!date) return ''
+  const [y, m, d] = date.split('-')
+  const [hh = '09', mm = '00'] = (time || '09:00').split(':')
+  const start = `${y}${m}${d}T${hh}${mm}00`
+  const end = addMinutes(date, time, durationMin)
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: title || 'Appointment', dates: `${start}/${end}`, details, location })
+  return `https://calendar.google.com/calendar/render?${params.toString()}`
+}
+
 // Trigger a browser download of an .ics file.
 export function downloadIcs(filename, icsText) {
   const blob = new Blob([icsText], { type: 'text/calendar;charset=utf-8' })

@@ -1,18 +1,28 @@
 import { useMemo, useState } from 'react'
 import {
   CalendarDays, CalendarClock, MessageCircle, CalendarPlus, Check, X,
-  Trash2, Ban, Bell, Clock, RefreshCw,
+  Trash2, Ban, Bell, Clock, RefreshCw, Plus, ChevronLeft, ChevronRight, User, Phone,
 } from 'lucide-react'
 import { useData, useToast } from '../context/app'
-import { Card, Badge, Field, Input, Select, Tabs, EmptyState } from '../components/ui'
+import { Card, Badge, Field, Input, Select, Tabs, EmptyState, Modal } from '../components/ui'
 import { SITE } from '../config/site'
 import {
-  waLink, confirmMessage, reminderMessage, buildIcs, downloadIcs,
+  waLink, confirmMessage, reminderMessage, buildIcs, downloadIcs, googleCalendarLink,
 } from '../lib/schedule'
 
 const STATUS_COLOR = { pending: 'amber', confirmed: 'green', declined: 'slate', done: 'blue' }
 const todayStr = () => new Date().toISOString().slice(0, 10)
 const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) }
+const pad2 = (n) => String(n).padStart(2, '0')
+// Calendar cells for a month, Monday-first (null = blank).
+function monthMatrix(y, m) {
+  const startDow = (new Date(y, m, 1).getDay() + 6) % 7
+  const days = new Date(y, m + 1, 0).getDate()
+  const cells = Array.from({ length: startDow }, () => null)
+  for (let d = 1; d <= days; d++) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null)
+  return cells
+}
 
 /* --------------------------- Booking card --------------------------- */
 function BookingCard({ b }) {
@@ -234,25 +244,203 @@ function AvailabilityTab() {
   )
 }
 
+/* -------------------- Add appointment (manual) -------------------- */
+function AddAppointmentModal({ open, onClose }) {
+  const { patients, addAppointment, addBooking } = useData()
+  const toast = useToast()
+  const [mode, setMode] = useState('patient')
+  const [patientId, setPatientId] = useState('')
+  const [form, setForm] = useState({ name: '', phone: '', date: '', time: '', type: 'Treatment session', notes: '' })
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+
+  const save = async () => {
+    if (!form.date || !form.time) { toast('Pick a date and time', 'error'); return }
+    if (mode === 'patient') {
+      if (!patientId) { toast('Choose a patient', 'error'); return }
+      await addAppointment({ patientId, date: form.date, time: form.time, type: form.type, notes: form.notes })
+    } else {
+      if (!form.name.trim()) { toast('Enter a name', 'error'); return }
+      await addBooking({ name: form.name, phone: form.phone, sessionType: form.type, requestedDate: form.date, requestedTime: form.time, notes: form.notes, status: 'confirmed' })
+    }
+    toast('Appointment added')
+    setForm({ name: '', phone: '', date: '', time: '', type: 'Treatment session', notes: '' }); setPatientId('')
+    onClose()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Add appointment">
+      <p className="text-sm text-ink-3 mb-3">For a phone call or walk-in. Pick an existing patient, or add a one-off by name.</p>
+      <div className="flex gap-2 mb-4">
+        {[['patient', 'Existing patient', User], ['walkin', 'Phone / walk-in', Phone]].map(([v, l, Icon]) => (
+          <button key={v} onClick={() => setMode(v)}
+            className={`chip px-3 py-1.5 cursor-pointer ${mode === v ? 'bg-teal-600 text-white' : 'bg-canvas ring-1 ring-line text-ink-3'}`}>
+            <Icon size={13} /> {l}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-4">
+        {mode === 'patient' ? (
+          <Field label="Patient">
+            <Select value={patientId} onChange={(e) => setPatientId(e.target.value)}>
+              <option value="">Choose…</option>
+              {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </Select>
+          </Field>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Name"><Input value={form.name} onChange={set('name')} placeholder="Caller's name" /></Field>
+            <Field label="Phone"><Input value={form.phone} onChange={set('phone')} placeholder="+961 ..." /></Field>
+          </div>
+        )}
+        <div className="grid sm:grid-cols-3 gap-4">
+          <Field label="Date"><Input type="date" min={todayStr()} value={form.date} onChange={set('date')} /></Field>
+          <Field label="Time"><Input type="time" value={form.time} onChange={set('time')} /></Field>
+          <Field label="Type">
+            <Select value={form.type} onChange={set('type')}>
+              {['Treatment session', 'Initial assessment', 'Follow-up', 'Review'].map((t) => <option key={t}>{t}</option>)}
+            </Select>
+          </Field>
+        </div>
+        <Field label="Notes"><Input value={form.notes} onChange={set('notes')} placeholder="Optional" /></Field>
+      </div>
+      <div className="flex justify-end gap-2 mt-6">
+        <button className="btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn-primary" onClick={save}><Plus size={15} /> Add appointment</button>
+      </div>
+    </Modal>
+  )
+}
+
+/* --------------------------- Calendar tab --------------------------- */
+function CalendarTab() {
+  const { appointments, bookings, patients } = useData()
+  const [cursor, setCursor] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() } })
+  const [selected, setSelected] = useState(todayStr())
+
+  const patientName = (id) => patients.find((p) => p.id === id)?.name || 'Patient'
+  const patientPhone = (id) => patients.find((p) => p.id === id)?.phone
+
+  const events = useMemo(() => {
+    const ev = []
+    appointments.forEach((a) => { if (a.date) ev.push({ id: 'a' + a.id, date: a.date, time: a.time, title: patientName(a.patientId), sub: a.type, kind: 'appointment', phone: patientPhone(a.patientId) }) })
+    bookings.forEach((b) => { if (b.requestedDate && b.status !== 'declined') ev.push({ id: 'b' + b.id, date: b.requestedDate, time: b.requestedTime, title: b.name, sub: b.sessionType, kind: 'booking', status: b.status, phone: b.phone }) })
+    return ev
+  }, [appointments, bookings, patients])
+
+  const byDate = useMemo(() => {
+    const m = {}
+    events.forEach((e) => { (m[e.date] ||= []).push(e) })
+    Object.values(m).forEach((list) => list.sort((a, b) => (a.time || '').localeCompare(b.time || '')))
+    return m
+  }, [events])
+
+  const cells = monthMatrix(cursor.y, cursor.m)
+  const cellDate = (d) => `${cursor.y}-${pad2(cursor.m + 1)}-${pad2(d)}`
+  const monthName = new Date(cursor.y, cursor.m, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const shift = (delta) => setCursor((c) => { const d = new Date(c.y, c.m + delta, 1); return { y: d.getFullYear(), m: d.getMonth() } })
+  const dayEvents = byDate[selected] || []
+
+  return (
+    <div className="grid lg:grid-cols-3 gap-6">
+      <Card className="p-4 lg:col-span-2">
+        <div className="flex items-center justify-between mb-3">
+          <button className="btn-ghost p-2 rounded-lg" onClick={() => shift(-1)} aria-label="Previous month"><ChevronLeft size={18} /></button>
+          <div className="font-display font-semibold">{monthName}</div>
+          <button className="btn-ghost p-2 rounded-lg" onClick={() => shift(1)} aria-label="Next month"><ChevronRight size={18} /></button>
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-ink-3 mb-1">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d}>{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((d, i) => {
+            if (!d) return <div key={i} />
+            const ds = cellDate(d)
+            const evs = byDate[ds] || []
+            const isToday = ds === todayStr()
+            const isSel = ds === selected
+            return (
+              <button key={i} onClick={() => setSelected(ds)}
+                className={`min-h-[66px] rounded-lg border p-1 text-left align-top transition ${isSel ? 'border-teal-400 ring-1 ring-teal-200' : 'border-line hover:border-teal-200'} ${isToday ? 'bg-teal-50/50' : 'bg-white'}`}>
+                <div className={`text-xs font-semibold ${isToday ? 'text-teal-700' : 'text-ink-3'}`}>{d}</div>
+                <div className="space-y-0.5 mt-0.5">
+                  {evs.slice(0, 2).map((e) => (
+                    <div key={e.id} className={`truncate rounded px-1 text-[10px] leading-4 ${e.kind === 'appointment' ? 'bg-teal-100 text-teal-800' : e.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
+                      {e.time ? `${e.time} ` : ''}{e.title}
+                    </div>
+                  ))}
+                  {evs.length > 2 && <div className="text-[10px] text-ink-3 px-1">+{evs.length - 2} more</div>}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <h3 className="font-display font-semibold">{new Date(selected).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
+        {dayEvents.length === 0 ? (
+          <p className="text-sm text-ink-3 mt-3">No appointments this day.</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {dayEvents.map((e) => (
+              <div key={e.id} className="rounded-xl border border-line p-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-display font-semibold text-sm">{e.time || '—'}</span>
+                  <span className="text-sm truncate">{e.title}</span>
+                  <Badge color={e.kind === 'appointment' ? 'teal' : e.status === 'pending' ? 'amber' : 'green'} className="ml-auto shrink-0">
+                    {e.kind === 'appointment' ? 'patient' : e.status}
+                  </Badge>
+                </div>
+                {e.sub && <div className="text-xs text-ink-3 mt-0.5">{e.sub}</div>}
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {e.phone && (
+                    <a className="btn-secondary text-xs px-2.5 py-1" target="_blank" rel="noopener noreferrer"
+                      href={waLink(e.phone, reminderMessage({ name: e.title, date: e.date, time: e.time, clinic: SITE.clinicName }))}>
+                      <MessageCircle size={13} className="text-teal-600" /> Remind
+                    </a>
+                  )}
+                  <a className="btn-secondary text-xs px-2.5 py-1" target="_blank" rel="noopener noreferrer"
+                    href={googleCalendarLink({ title: `Physio — ${e.title}`, date: e.date, time: e.time, location: SITE.findUs.address })}>
+                    <CalendarPlus size={13} className="text-teal-600" /> Google
+                  </a>
+                  <button className="btn-secondary text-xs px-2.5 py-1"
+                    onClick={() => downloadIcs(`appt-${e.title.replace(/\s+/g, '-')}`, buildIcs({ title: `Physio — ${e.title}`, date: e.date, time: e.time, location: SITE.findUs.address }))}>
+                    <CalendarDays size={13} className="text-teal-600" /> .ics
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 /* ------------------------------ Page ------------------------------- */
 export default function Appointments() {
   const [tab, setTab] = useState('Requests')
+  const [addOpen, setAddOpen] = useState(false)
   const { bookings } = useData()
   const pending = bookings.filter((b) => b.status === 'pending').length
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display font-bold text-2xl">Appointments</h1>
-        <p className="text-ink-3 text-sm mt-1">
-          Booking requests from your website land here. Accept one (it WhatsApps the client a
-          confirmation), decline it, or change the date/time to reschedule — plus send reminders
-          and block time off.
-        </p>
+      <AddAppointmentModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display font-bold text-2xl">Appointments</h1>
+          <p className="text-ink-3 text-sm mt-1">
+            Website booking requests land in <b>Requests</b>. Accept one (it WhatsApps the client a
+            confirmation), decline or reschedule it. See everything on the <b>Calendar</b>, add a
+            phone/walk-in booking yourself, send reminders, and block time off.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={() => setAddOpen(true)}><Plus size={16} /> Add appointment</button>
       </div>
 
       <Tabs
-        tabs={['Requests', 'Availability']}
+        tabs={['Requests', 'Calendar', 'Availability']}
         active={tab}
         onChange={setTab}
       />
@@ -267,6 +455,7 @@ export default function Appointments() {
           <RequestsTab />
         </>
       )}
+      {tab === 'Calendar' && <CalendarTab />}
       {tab === 'Availability' && <AvailabilityTab />}
     </div>
   )
