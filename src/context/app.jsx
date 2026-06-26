@@ -51,11 +51,17 @@ export function AuthProvider({ children }) {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  // Decide who the logged-in user is:
-  //   * a profiles row → clinic staff (admin / therapist)
-  //   * else a patients row linked by auth_user_id → patient
-  //   * else no access (account exists but isn't linked to anything)
+  // Decide who the logged-in user is. Patient identity ALWAYS takes priority:
+  // if this account is linked to a patient record it is a patient and only ever
+  // sees the patient portal — never the staff app — even if a stray profile row
+  // exists. Otherwise a profiles row means staff.
   async function hydrateProfile(authUser) {
+    const { data: patient } = await supabase
+      .from('patients').select('id, full_name').eq('auth_user_id', authUser.id).maybeSingle()
+    if (patient) {
+      setUser({ id: authUser.id, email: authUser.email, name: patient.full_name, role: 'patient', patientId: patient.id })
+      return
+    }
     const { data: profile } = await supabase
       .from('profiles').select('*').eq('id', authUser.id).maybeSingle()
     if (profile) {
@@ -65,12 +71,6 @@ export function AuthProvider({ children }) {
         role: profile.role || 'therapist',
         title: profile.title || 'Physiotherapist',
       })
-      return
-    }
-    const { data: patient } = await supabase
-      .from('patients').select('id, full_name').eq('auth_user_id', authUser.id).maybeSingle()
-    if (patient) {
-      setUser({ id: authUser.id, email: authUser.email, name: patient.full_name, role: 'patient', patientId: patient.id })
       return
     }
     setUser({ id: authUser.id, email: authUser.email, role: null })  // unlinked account

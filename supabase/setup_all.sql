@@ -18,10 +18,15 @@ create table if not exists public.profiles (
   created_at timestamptz default now()
 );
 
--- Auto-create a profile row whenever a staff user is created.
+-- Auto-create a profile row whenever a STAFF user is created.
+-- Patient accounts (metadata role = 'patient') get NO profile row, so they
+-- never count as staff.
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
+  if coalesce(new.raw_user_meta_data->>'role', '') = 'patient' then
+    return new;
+  end if;
   insert into public.profiles (id, full_name, role)
   values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.email), 'therapist')
   on conflict (id) do nothing;
@@ -167,9 +172,15 @@ returns boolean language sql security definer stable set search_path = public as
   );
 $$;
 
--- The API roles must be able to execute the helpers used in policies.
-grant execute on function public.is_staff() to anon, authenticated;
-grant execute on function public.owns_patient(text) to anon, authenticated;
+-- Base schema privileges (standard Supabase grants). RLS still controls
+-- which rows each role sees; these just let the roles reach the objects.
+grant usage on schema public to anon, authenticated, service_role;
+grant all on all tables    in schema public to anon, authenticated, service_role;
+grant all on all routines  in schema public to anon, authenticated, service_role;
+grant all on all sequences in schema public to anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables    to anon, authenticated, service_role;
+alter default privileges in schema public grant all on routines  to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 
 -- ============================================================
 -- Row-Level Security
