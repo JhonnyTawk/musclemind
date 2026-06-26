@@ -198,9 +198,12 @@ export function DataProvider({ children }) {
       status: 'pending', createdAt: new Date().toISOString(), ...b,
     }
     setBookings((arr) => [full, ...arr])
+    // Note: a public (anonymous) visitor can INSERT a booking but is not allowed
+    // to read rows back, so we must NOT chain .select() here — doing so makes the
+    // insert fail. Fire-and-forget insert; staff read it from their dashboard.
     if (supabaseConfigured) {
-      const { data } = await supabase.from('bookings').insert(bookingToRow(full)).select().single()
-      if (data) setBookings((arr) => arr.map((x) => (x.id === full.id ? rowToBooking(data) : x)))
+      const { error } = await supabase.from('bookings').insert(bookingToRow(full))
+      if (error) console.error('booking insert failed', error.message)
     }
     return full
   }
@@ -213,6 +216,13 @@ export function DataProvider({ children }) {
   const deleteBooking = async (id) => {
     setBookings((arr) => arr.filter((b) => b.id !== id))
     if (supabaseConfigured) await supabase.from('bookings').delete().eq('id', id)
+  }
+
+  // Pull the latest booking requests (new website submissions) on demand.
+  const refreshBookings = async () => {
+    if (!supabaseConfigured) return
+    const { data } = await supabase.from('bookings').select('*').order('created_at', { ascending: false })
+    if (data) setBookings(data.map(rowToBooking))
   }
 
   // ---- Availability blocks ----
@@ -286,7 +296,7 @@ export function DataProvider({ children }) {
     aclPhases: mock.ACL_PHASES, aclState: mock.ACL_PATIENT_STATE,
     outcomeTools: mock.OUTCOME_TOOLS,
     addPatient, updatePatient, deletePatient, addLog, dismissAlert, saveProgram, saveAssessment,
-    addBooking, updateBooking, deleteBooking, addBlock, removeBlock,
+    addBooking, updateBooking, deleteBooking, refreshBookings, addBlock, removeBlock,
     addAppointment, deleteAppointment, generatePatientCredentials,
   }), [ready, patients, logs, alerts, programs, assessments, settings, bookings, availabilityBlocks, appointments, followups])
 

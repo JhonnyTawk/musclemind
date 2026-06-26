@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   CalendarDays, CalendarClock, MessageCircle, CalendarPlus, Check, X,
-  Trash2, Ban, Bell, Clock,
+  Trash2, Ban, Bell, Clock, RefreshCw,
 } from 'lucide-react'
 import { useData, useToast } from '../context/app'
 import { Card, Badge, Field, Input, Select, Tabs, EmptyState } from '../components/ui'
@@ -105,9 +105,18 @@ function BookingCard({ b }) {
 
 /* --------------------------- Requests tab --------------------------- */
 function RequestsTab() {
-  const { bookings } = useData()
+  const { bookings, refreshBookings } = useData()
+  const toast = useToast()
   const [filter, setFilter] = useState('All')
+  const [refreshing, setRefreshing] = useState(false)
   const tomorrow = addDays(1)
+
+  const refresh = async () => {
+    setRefreshing(true)
+    await refreshBookings()
+    setRefreshing(false)
+    toast('Checked for new requests')
+  }
 
   const remindersDue = useMemo(
     () => bookings.filter((b) => b.status === 'confirmed' && (b.requestedDate === tomorrow || b.requestedDate === todayStr())),
@@ -129,13 +138,16 @@ function RequestsTab() {
         </Card>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {['All', 'Pending', 'Confirmed', 'Done', 'Declined'].map((f) => (
           <button key={f} onClick={() => setFilter(f)}
             className={`chip px-3 py-1.5 cursor-pointer ${filter === f ? 'bg-teal-600 text-white' : 'bg-canvas ring-1 ring-line text-ink-3 hover:text-ink'}`}>
             {f}
           </button>
         ))}
+        <button onClick={refresh} disabled={refreshing} className="btn-secondary text-xs px-3 py-1.5 ml-auto">
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Check for new requests
+        </button>
       </div>
 
       {filtered.length === 0 ? (

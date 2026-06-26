@@ -41,14 +41,12 @@ h1, h2, h3, h4 { @apply font-display; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
-/* Printing: show only the report document, hide everything else. */
+/* Printing: hide the whole app and show only the dedicated print layer,
+   which lives outside #root so it flows naturally across pages. */
+#print-root { display: none; }
 @media print {
-  body * { visibility: hidden; }
-  #print-area, #print-area * { visibility: visible; }
-  #print-area {
-    position: absolute; left: 0; top: 0; width: 100%;
-    padding: 28px 32px; box-shadow: none; border: 0; border-radius: 0;
-  }
+  #root { display: none !important; }
+  #print-root { display: block !important; padding: 0; }
   .no-print { display: none !important; }
   @page { margin: 14mm; }
 }

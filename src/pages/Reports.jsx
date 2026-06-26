@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Printer, AlertTriangle, FilePlus2, HeartPulse } from 'lucide-react'
 import { useData, useToast } from '../context/app'
 import { Card, CardHeader, Badge, Select, Modal } from '../components/ui'
@@ -29,10 +30,28 @@ function useStats(rows, patient) {
   }, [rows, patient])
 }
 
+// A self-contained inline-SVG line chart. Unlike recharts it needs no container
+// measurement, so it renders reliably inside the print layer.
+function Sparkline({ values, color = '#0D9488', height = 90, width = 320, domain = [0, 10] }) {
+  const data = (values || []).filter((v) => v != null)
+  if (data.length < 2) return <div className="text-xs text-ink-3 py-4">Not enough data yet.</div>
+  const [min, max] = domain
+  const x = (i) => 6 + (i / (data.length - 1)) * (width - 12)
+  const y = (v) => height - 6 - ((Math.max(min, Math.min(max, v)) - min) / (max - min)) * (height - 12)
+  const line = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const area = `6,${height - 6} ${line} ${x(data.length - 1).toFixed(1)},${height - 6}`
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none" role="img">
+      <polyline points={area} fill={color} fillOpacity="0.08" stroke="none" />
+      <polyline points={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 /* ------------------ The printable, branded report ------------------ */
 function ReportDocument({ patient, type, rows, program, stats }) {
-  const painData = rows.map((r) => ({ x: r.date.slice(5), pain: r.pain }))
-  const fnData = rows.map((r) => ({ x: r.date.slice(5), fn: r.function }))
+  const painValues = rows.map((r) => r.pain)
+  const fnValues = rows.map((r) => r.function)
   const Row = ({ label, value }) => value ? (
     <div className="py-1.5 border-b border-line/70 last:border-0 flex gap-3">
       <div className="w-40 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-3">{label}</div>
@@ -41,7 +60,7 @@ function ReportDocument({ patient, type, rows, program, stats }) {
   ) : null
 
   return (
-    <div id="print-area" className="bg-white text-ink">
+    <div className="report-doc bg-white text-ink">
       {/* letterhead */}
       <div className="flex items-center justify-between border-b-2 border-teal-600 pb-4">
         <div className="flex items-center gap-3">
@@ -94,16 +113,16 @@ function ReportDocument({ patient, type, rows, program, stats }) {
       </div>
       {patient.progress && <p className="text-sm text-ink-2 mt-3 leading-relaxed">{patient.progress}</p>}
 
-      {/* trend chart (real) */}
-      {painData.length > 1 && (
-        <div className="mt-4 grid sm:grid-cols-2 gap-4">
+      {/* trend charts (real, print-safe SVG) */}
+      {painValues.filter((v) => v != null).length > 1 && (
+        <div className="mt-4 grid grid-cols-2 gap-6">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-1">Pain over time</div>
-            <TrendLine data={painData} lines={[{ key: 'pain', name: 'Pain' }]} yDomain={[0, 10]} height={150} />
+            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-1">Pain over time (0–10)</div>
+            <Sparkline values={painValues} color="#DC2626" />
           </div>
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-1">Function over time</div>
-            <TrendLine data={fnData} lines={[{ key: 'fn', name: 'Function' }]} yDomain={[0, 10]} height={150} />
+            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-1">Function over time (0–10)</div>
+            <Sparkline values={fnValues} color="#0D9488" />
           </div>
         </div>
       )}
@@ -157,6 +176,7 @@ export default function Reports() {
   const stats = useStats(rows, patient)
   const program = patient ? programs[patient.id] : null
   const painData = rows.map((r) => ({ x: r.date.slice(5), pain: r.pain }))
+  const fnData = rows.map((r) => ({ x: r.date.slice(5), fn: r.function }))
   const highRisk = patients.filter((p) => p.status === 'Active' && (p.painNow >= 6 || (p.adherence ?? 100) < 65))
 
   return (
@@ -188,6 +208,13 @@ export default function Reports() {
             <Card>
               <CardHeader title="Exercise adherence" sub="Last 2 weeks" />
               <div className="px-2 pb-2"><Gauge value={stats.adherence ?? 0} label="completed sessions" height={170} /></div>
+            </Card>
+            <Card className="lg:col-span-2">
+              <CardHeader title="Function trend" sub={`Self-rated 0–10 · last ${rows.length} logged days`} />
+              <div className="px-3 pb-4">
+                {fnData.length ? <TrendLine data={fnData} lines={[{ key: 'fn', name: 'Function' }]} yDomain={[0, 10]} height={190} />
+                  : <p className="px-3 pb-6 text-sm text-ink-3">No symptom logs for this patient yet.</p>}
+              </div>
             </Card>
           </div>
 
@@ -239,6 +266,14 @@ export default function Reports() {
           </div>
         )}
       </Modal>
+
+      {/* dedicated print layer (outside the app shell) so the PDF is never cropped */}
+      {type && patient && createPortal(
+        <div id="print-root">
+          <ReportDocument patient={patient} type={type} rows={rows} program={program} stats={stats} />
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
