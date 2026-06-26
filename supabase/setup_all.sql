@@ -167,6 +167,10 @@ returns boolean language sql security definer stable set search_path = public as
   );
 $$;
 
+-- The API roles must be able to execute the helpers used in policies.
+grant execute on function public.is_staff() to anon, authenticated;
+grant execute on function public.owns_patient(text) to anon, authenticated;
+
 -- ============================================================
 -- Row-Level Security
 -- ============================================================
@@ -184,6 +188,7 @@ alter table public.availability_blocks enable row level security;
 drop policy if exists "staff read profiles" on public.profiles;
 drop policy if exists "staff update own profile" on public.profiles;
 drop policy if exists "profiles staff read" on public.profiles;
+drop policy if exists "profiles read own" on public.profiles;
 drop policy if exists "profiles update own" on public.profiles;
 drop policy if exists "staff all patients" on public.patients;
 drop policy if exists "anon read patient by token" on public.patients;
@@ -212,8 +217,8 @@ drop policy if exists "anon read availability" on public.availability_blocks;
 drop policy if exists "staff manage availability" on public.availability_blocks;
 drop policy if exists "availability staff all" on public.availability_blocks;
 
--- profiles: staff only
-create policy "profiles staff read" on public.profiles for select using (public.is_staff());
+-- profiles: each user reads their OWN row (no recursion, no function needed)
+create policy "profiles read own" on public.profiles for select using (id = auth.uid());
 create policy "profiles update own" on public.profiles for update using (auth.uid() = id);
 
 -- patients: staff full; patient reads only their own row

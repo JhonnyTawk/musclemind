@@ -26,26 +26,29 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-  const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
   const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-  // 1) Identify the caller from their JWT.
-  const authHeader = req.headers.get('Authorization') ?? ''
-  if (!authHeader) return json({ error: 'Missing authorization' }, 401)
-
-  const caller = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
+  // Admin (service role) client — bypasses RLS for privileged checks + actions.
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
   })
-  const { data: userData, error: userErr } = await caller.auth.getUser()
-  if (userErr || !userData?.user) return json({ error: 'Not authenticated' }, 401)
 
-  // 2) Admin (service role) client — used for privileged checks + actions.
-  const admin = createClient(SUPABASE_URL, SERVICE_KEY)
+  // 1) Identify the caller by validating their JWT with the service client.
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  if (!token) return json({ error: 'Missing authorization header' }, 401)
+  const { data: userData, error: userErr } = await admin.auth.getUser(token)
+  if (userErr || !userData?.user) {
+    return json({ error: `Could not verify your session: ${userErr?.message ?? 'no user'}` }, 401)
+  }
+  const callerId = userData.user.id
 
-  // 3) Authorize: caller must be staff with role 'admin'.
-  const { data: profile } = await admin
-    .from('profiles').select('role').eq('id', userData.user.id).single()
-  if (!profile || profile.role !== 'admin') return json({ error: 'Admins only' }, 403)
+  // 2) Authorize: caller must be staff with role 'admin'. Specific errors so
+  //    misconfiguration is obvious instead of a blanket "Admins only".
+  const { data: profile, error: profErr } = await admin
+    .from('profiles').select('role').eq('id', callerId).maybeSingle()
+  if (profErr) return json({ error: `Profile lookup failed: ${profErr.message}` }, 403)
+  if (!profile) return json({ error: `No profile row exists for your account (${callerId}). Run the admin upsert in SETUP.md.` }, 403)
+  if (profile.role !== 'admin') return json({ error: `Your role is "${profile.role}", but creating logins requires "admin".` }, 403)
 
   // 4) Validate input.
   let body: { patientId?: string; email?: string; password?: string }
