@@ -112,6 +112,7 @@ export function DataProvider({ children }) {
   const [settings, setSettings] = useState(mock.DEFAULT_SETTINGS)
   const [bookings, setBookings] = useState([])          // public appointment requests
   const [availabilityBlocks, setAvailabilityBlocks] = useState([]) // blocked dates/times
+  const [therapists, setTherapists] = useState([])      // editable team list
   const [ready, setReady] = useState(!supabaseConfigured)
 
   // Each query is RLS-scoped: staff get everything, a logged-in patient gets
@@ -120,7 +121,7 @@ export function DataProvider({ children }) {
     if (!supabaseConfigured) return
     ;(async () => {
       try {
-        const [{ data: ps }, { data: ls }, { data: al }, { data: ap }, { data: pr }, { data: bk }, { data: av }] = await Promise.all([
+        const [{ data: ps }, { data: ls }, { data: al }, { data: ap }, { data: pr }, { data: bk }, { data: av }, { data: th }] = await Promise.all([
           supabase.from('patients').select('*').order('last_visit', { ascending: false }),
           supabase.from('symptom_logs').select('*').order('date'),
           supabase.from('alerts').select('*').order('date', { ascending: false }),
@@ -128,6 +129,7 @@ export function DataProvider({ children }) {
           supabase.from('exercise_programs').select('*'),
           supabase.from('bookings').select('*').order('created_at', { ascending: false }),
           supabase.from('availability_blocks').select('*').order('date'),
+          supabase.from('therapists').select('*').order('created_at'),
         ])
         setPatients((ps || []).map(rowToPatient))
         setLogs((ls || []).map(rowToLog))
@@ -136,6 +138,7 @@ export function DataProvider({ children }) {
         if (pr?.length) setPrograms(Object.fromEntries(pr.map((r) => [r.patient_id, r.program])))
         setBookings((bk || []).map(rowToBooking))
         setAvailabilityBlocks((av || []).map(rowToBlock))
+        setTherapists((th || []).map((t) => ({ id: t.id, name: t.name, title: t.title, role: 'therapist' })))
       } finally { setReady(true) }
     })()
   }, [])
@@ -262,6 +265,21 @@ export function DataProvider({ children }) {
     if (supabaseConfigured) await supabase.from('appointments').delete().eq('id', id)
   }
 
+  // ---- Therapists / team ----
+  const addTherapist = async (name, title = '') => {
+    const tmp = { id: 't' + Math.random().toString(36).slice(2, 9), name, title, role: 'therapist' }
+    setTherapists((arr) => [...arr, tmp])
+    if (supabaseConfigured) {
+      const { data } = await supabase.from('therapists').insert({ name, title }).select().single()
+      if (data) setTherapists((arr) => arr.map((t) => (t.id === tmp.id ? { id: data.id, name: data.name, title: data.title, role: 'therapist' } : t)))
+    }
+    return tmp
+  }
+  const deleteTherapist = async (id) => {
+    setTherapists((arr) => arr.filter((t) => t.id !== id))
+    if (supabaseConfigured) await supabase.from('therapists').delete().eq('id', id)
+  }
+
   // ---- Patient portal credentials (secure: runs server-side) ----
   // Calls the create-patient-user Edge Function, which verifies the caller
   // is an admin and creates the login with the service-role key.
@@ -289,8 +307,8 @@ export function DataProvider({ children }) {
 
   const value = useMemo(() => ({
     ready, patients, logs, alerts, programs, assessments, settings, setSettings,
-    bookings, availabilityBlocks, appointments, followups,
-    therapists: mock.THERAPISTS, exercises: mock.EXERCISES,
+    bookings, availabilityBlocks, appointments, followups, therapists,
+    exercises: mock.EXERCISES,
     weeklyActivity: mock.WEEKLY_ACTIVITY, conditionsDist: mock.CONDITIONS_DIST,
     phaseDist: mock.PHASE_DIST, postureLogs: mock.POSTURE_LOGS,
     aclPhases: mock.ACL_PHASES, aclState: mock.ACL_PATIENT_STATE,
@@ -298,7 +316,8 @@ export function DataProvider({ children }) {
     addPatient, updatePatient, deletePatient, addLog, dismissAlert, saveProgram, saveAssessment,
     addBooking, updateBooking, deleteBooking, refreshBookings, addBlock, removeBlock,
     addAppointment, deleteAppointment, generatePatientCredentials,
-  }), [ready, patients, logs, alerts, programs, assessments, settings, bookings, availabilityBlocks, appointments, followups])
+    addTherapist, deleteTherapist,
+  }), [ready, patients, logs, alerts, programs, assessments, settings, bookings, availabilityBlocks, appointments, followups, therapists])
 
   return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>
 }

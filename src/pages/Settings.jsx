@@ -1,16 +1,23 @@
 import { useState } from 'react'
-import { Building2, UserCircle2, Palette, ClipboardList, Dumbbell, Bell, FileText, Save } from 'lucide-react'
+import { Building2, UserCircle2, Users, ClipboardList, Bell, FileText, Save, Plus, Trash2 } from 'lucide-react'
 import { useAuth, useData, useToast } from '../context/app'
 import { Card, CardHeader, Field, Input, Select, Toggle, Avatar, Badge } from '../components/ui'
 
 export default function SettingsPage() {
-  const { settings, setSettings, therapists } = useData()
+  const { settings, setSettings, therapists, addTherapist, deleteTherapist } = useData()
   const { user, supabaseConfigured } = useAuth()
   const toast = useToast()
   const [s, setS] = useState(settings)
   const set = (k) => (e) => setS({ ...s, [k]: e.target?.value ?? e })
+  const [newT, setNewT] = useState({ name: '', title: '' })
 
   const save = () => { setSettings(s); toast('Settings saved') }
+  const addTeamMember = async () => {
+    if (!newT.name.trim()) { toast('Enter a name', 'error'); return }
+    await addTherapist(newT.name.trim(), newT.title.trim())
+    setNewT({ name: '', title: '' })
+    toast('Therapist added')
+  }
 
   return (
     <div className="space-y-5 fade-up max-w-3xl">
@@ -36,28 +43,46 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader title="Therapist profile" right={<UserCircle2 size={18} className="text-ink-3" />} />
+        <CardHeader title="Your profile" right={<UserCircle2 size={18} className="text-ink-3" />} />
         <div className="px-5 pb-5">
-          <div className="flex items-center gap-4 mb-5">
+          <div className="flex items-center gap-4">
             <Avatar name={user?.name} size="lg" />
             <div>
               <div className="font-semibold">{user?.name}</div>
               <div className="text-sm text-ink-3">{user?.title} · {user?.role === 'admin' ? 'Administrator' : 'Therapist'}</div>
             </div>
           </div>
-          <div className="rounded-xl bg-canvas p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-2.5">Clinic team</div>
-            <div className="space-y-2">
-              {therapists.map((t) => (
-                <div key={t.id} className="flex items-center gap-3 text-sm">
-                  <Avatar name={t.name} size="sm" />
-                  <span className="font-medium">{t.name}</span>
-                  <span className="text-ink-3">{t.title}</span>
-                  <Badge color={t.role === 'admin' ? 'teal' : 'slate'} className="ml-auto">{t.role}</Badge>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="Clinic team" sub="Therapists patients can be assigned to" right={<Users size={18} className="text-ink-3" />} />
+        <div className="px-5 pb-5">
+          <div className="space-y-2">
+            {therapists.length === 0 && <p className="text-sm text-ink-3">No therapists yet — add one below.</p>}
+            {therapists.map((t) => (
+              <div key={t.id} className="flex items-center gap-3 text-sm rounded-xl bg-canvas p-3">
+                <Avatar name={t.name} size="sm" />
+                <div className="min-w-0">
+                  <div className="font-medium">{t.name}</div>
+                  {t.title && <div className="text-xs text-ink-3">{t.title}</div>}
                 </div>
-              ))}
-            </div>
+                <button onClick={() => deleteTherapist(t.id)} aria-label={`Remove ${t.name}`}
+                  className="btn-ghost p-2 rounded-lg ml-auto text-ink-3 hover:text-danger hover:bg-red-50">
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
           </div>
+          <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 mt-4 items-end">
+            <Field label="Name"><Input value={newT.name} onChange={(e) => setNewT({ ...newT, name: e.target.value })} placeholder="e.g. Omar Haddad" /></Field>
+            <Field label="Title"><Input value={newT.title} onChange={(e) => setNewT({ ...newT, title: e.target.value })} placeholder="e.g. Sports Physiotherapist" /></Field>
+            <button className="btn-primary h-[42px]" onClick={addTeamMember}><Plus size={15} /> Add</button>
+          </div>
+          <p className="text-xs text-ink-3 mt-3">
+            This list is for assigning patients. To give a therapist their own <b>login</b>, add them
+            as a user in Supabase (Authentication → Users) — see SETUP.md.
+          </p>
         </div>
       </Card>
 

@@ -69,7 +69,7 @@ function NewPatientModal({ open, onClose }) {
   const { addPatient, therapists } = useData()
   const toast = useToast()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ name: '', age: '', gender: 'Female', complaint: '', diagnosis: '', therapistId: 't2', phone: '', occupation: '', activity: '' })
+  const [form, setForm] = useState({ name: '', age: '', gender: 'Female', complaint: '', diagnosis: '', therapistId: '', phone: '', occupation: '', activity: '' })
   const [errors, setErrors] = useState({})
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
@@ -99,6 +99,7 @@ function NewPatientModal({ open, onClose }) {
         <Field label="Sport / activity"><Input value={form.activity} onChange={set('activity')} /></Field>
         <Field label="Assigned therapist">
           <Select value={form.therapistId} onChange={set('therapistId')}>
+            <option value="">Unassigned</option>
             {therapists.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </Select>
         </Field>

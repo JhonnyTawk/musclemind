@@ -276,6 +276,22 @@ create policy "anon read availability" on public.availability_blocks
 create policy "availability staff all" on public.availability_blocks
   for all using (public.is_staff()) with check (public.is_staff());
 
+-- ---------- therapists / team (editable assignment list) ----------
+create table if not exists public.therapists (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  title text,
+  created_at timestamptz default now()
+);
+alter table public.therapists enable row level security;
+grant select, insert, update, delete on public.therapists to authenticated;
+drop policy if exists "therapists staff all" on public.therapists;
+create policy "therapists staff all" on public.therapists
+  for all using (public.is_staff()) with check (public.is_staff());
+insert into public.therapists (name, title)
+select 'Chada Tawk', 'Physiotherapist'
+where not exists (select 1 from public.therapists);
+
 -- ============================================================
 -- Done. Next: create your admin user in Authentication → Users,
 -- then run the admin upsert in SETUP.md (step 3).
