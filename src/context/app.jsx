@@ -114,9 +114,11 @@ export function DataProvider({ children }) {
   const [availabilityBlocks, setAvailabilityBlocks] = useState([]) // blocked dates/times
   const [therapists, setTherapists] = useState([])      // editable team list
   const [ready, setReady] = useState(!supabaseConfigured)
+  const { user } = useAuth()
 
-  // Each query is RLS-scoped: staff get everything, a logged-in patient gets
-  // only their own rows, and anonymous visitors get nothing here.
+  // Re-fetch whenever the logged-in user changes. This is essential: the data
+  // must be loaded AFTER sign-in (RLS scopes rows to the current user), otherwise
+  // a fresh patient login would load as an anonymous visitor and see nothing.
   useEffect(() => {
     if (!supabaseConfigured) return
     ;(async () => {
@@ -135,13 +137,13 @@ export function DataProvider({ children }) {
         setLogs((ls || []).map(rowToLog))
         setAlerts((al || []).map((a) => ({ id: a.id, patientId: a.patient_id, severity: a.severity, kind: a.kind, text: a.text, date: a.date })))
         setAppointments((ap || []).map(rowToAppointment))
-        if (pr?.length) setPrograms(Object.fromEntries(pr.map((r) => [r.patient_id, r.program])))
+        setPrograms(pr?.length ? Object.fromEntries(pr.map((r) => [r.patient_id, r.program])) : {})
         setBookings((bk || []).map(rowToBooking))
         setAvailabilityBlocks((av || []).map(rowToBlock))
         setTherapists((th || []).map((t) => ({ id: t.id, name: t.name, title: t.title, role: 'therapist' })))
       } finally { setReady(true) }
     })()
-  }, [])
+  }, [user?.id])
 
   const addPatient = async (p) => {
     const id = 'p' + Math.random().toString(36).slice(2, 8)
